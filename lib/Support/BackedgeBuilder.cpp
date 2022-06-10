@@ -28,14 +28,30 @@ void Backedge::setValue(mlir::Value newValue) {
 }
 
 BackedgeBuilder::~BackedgeBuilder() {
+  assert(succeeded(clearOrEmitError()) && "backedges still in use");
+}
+
+LogicalResult BackedgeBuilder::clearOrEmitError() {
+  unsigned numInUse = 0;
   for (Operation *op : edges) {
-    assert(op->use_empty() && "Backedge still in use");
+    if (!op->use_empty()) {
+      op->emitError("backedge of type `")
+          << op->getResult(0).getType() << "`still in use";
+      ++numInUse;
+      continue;
+    }
     if (rewriter)
       rewriter->eraseOp(op);
     else
       op->erase();
   }
+  edges.clear();
+  if (numInUse > 0)
+    mlir::emitRemark(loc, "abandoned ") << numInUse << " backedges";
+  return success(numInUse == 0);
 }
+
+void BackedgeBuilder::abandon() { edges.clear(); }
 
 Backedge::operator mlir::Value() { return value; }
 
