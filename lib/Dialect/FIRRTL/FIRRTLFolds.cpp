@@ -1397,7 +1397,7 @@ LogicalResult MultibitMuxOp::canonicalize(MultibitMuxOp op,
 /// exactly one connect that sets the value as its destination.  This returns
 /// the operation if found and if all the other users are "reads" from the
 /// value.
-static StrictConnectOp getSingleConnectUserOf(Value value) {
+StrictConnectOp firrtl::getSingleConnectUserOf(Value value) {
   StrictConnectOp connect;
   for (Operation *user : value.getUsers()) {
     // If we see an attach, just conservatively fail.
