@@ -9,12 +9,69 @@
 #include "ImportVerilogInternals.h"
 #include "slang/ast/Compilation.h"
 
+// #include "slang/ast/ASTVisitor.h"
+// #include "slang/ast/Symbol.h"
+// #include "slang/ast/symbols/CompilationUnitSymbols.h"
+// #include "slang/ast/symbols/InstanceSymbols.h"
+// #include "slang/ast/symbols/VariableSymbols.h"
+// #include "slang/ast/types/AllTypes.h"
+// #include "slang/ast/types/Type.h"
+// #include "slang/syntax/SyntaxVisitor.h"
+// #include "llvm/ADT/StringRef.h"
+
 using namespace circt;
 using namespace ImportVerilog;
 
 //===----------------------------------------------------------------------===//
+// Top-Level Item Conversion
+//===----------------------------------------------------------------------===//
+
+namespace {
+struct RootMemberVisitor {
+  Context &context;
+  Location loc;
+  OpBuilder &builder;
+
+  RootMemberVisitor(Context &context, Location loc)
+      : context(context), loc(loc), builder(context.builder) {}
+
+  /// Skip semicolons.
+  LogicalResult visit(const slang::ast::EmptyMemberSymbol &) {
+    return success();
+  }
+
+  /// Emit an error for all other members.
+  template <typename T>
+  LogicalResult visit(T &&node) {
+    mlir::emitError(loc, "unsupported top-level construct: ")
+        << slang::ast::toString(node.kind);
+    return failure();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // Module Member Conversion
 //===----------------------------------------------------------------------===//
+
+static moore::ProcedureKind
+convertProcedureKind(slang::ast::ProceduralBlockKind kind) {
+  switch (kind) {
+  case slang::ast::ProceduralBlockKind::Always:
+    return moore::ProcedureKind::Always;
+  case slang::ast::ProceduralBlockKind::AlwaysComb:
+    return moore::ProcedureKind::AlwaysComb;
+  case slang::ast::ProceduralBlockKind::AlwaysLatch:
+    return moore::ProcedureKind::AlwaysLatch;
+  case slang::ast::ProceduralBlockKind::AlwaysFF:
+    return moore::ProcedureKind::AlwaysFF;
+  case slang::ast::ProceduralBlockKind::Initial:
+    return moore::ProcedureKind::Initial;
+  case slang::ast::ProceduralBlockKind::Final:
+    return moore::ProcedureKind::Final;
+  }
+  llvm_unreachable("all procedure kinds handled");
+}
 
 namespace {
 struct MemberVisitor {
@@ -39,6 +96,12 @@ struct MemberVisitor {
   // Skip typedefs.
   LogicalResult visit(const slang::ast::TypeAliasType &) { return success(); }
 
+  // Skip parameters. The AST is already monomorphized.
+  LogicalResult visit(const slang::ast::ParameterSymbol &) { return success(); }
+  LogicalResult visit(const slang::ast::TypeParameterSymbol &) {
+    return success();
+  }
+
   // Handle instances.
   LogicalResult visit(const slang::ast::InstanceSymbol &instNode) {
     auto targetModule = context.convertModuleHeader(&instNode.body);
@@ -59,14 +122,65 @@ struct MemberVisitor {
       return failure();
 
     Value initial;
-    if (const auto *initNode = varNode.getInitializer()) {
-      return mlir::emitError(loc,
-                             "variable initializer expressions not supported");
+    if (varNode.getInitializer()) {
+      initial = context.convertExpression(*varNode.getInitializer());
+      if (!initial)
+        return failure();
     }
 
-    builder.create<moore::VariableOp>(
+    auto varOp = builder.create<moore::VariableOp>(
         loc, type, builder.getStringAttr(varNode.name), initial);
+    context.varSymbolTable.insert(varNode.name, varOp);
     return success();
+  }
+
+  // Handle nets.
+  LogicalResult visit(const slang::ast::NetSymbol &netNode) {
+    auto loweredType = context.convertType(*netNode.getDeclaredType());
+    if (!loweredType)
+      return failure();
+
+    Value assignment;
+    if (netNode.getInitializer()) {
+      assignment = context.convertExpression(*netNode.getInitializer());
+      if (!assignment)
+        return failure();
+    }
+
+    auto netOp = builder.create<moore::NetOp>(
+        loc, loweredType, builder.getStringAttr(netNode.name),
+        builder.getStringAttr(netNode.netType.name), assignment);
+    context.varSymbolTable.insert(netNode.name, netOp);
+    return success();
+  }
+
+  // Handle ports.
+  LogicalResult visit(const slang::ast::PortSymbol &portNode) {
+    auto loweredType = context.convertType(portNode.getType());
+    if (!loweredType)
+      return failure();
+    // TODO: Fix the `static_cast` here.
+    builder.create<moore::PortOp>(
+        loc, builder.getStringAttr(portNode.name),
+        static_cast<moore::Direction>(portNode.direction));
+    return success();
+  }
+
+  // Handle continuous assignments.
+  LogicalResult visit(const slang::ast::ContinuousAssignSymbol &assignNode) {
+    if (!context.convertExpression(assignNode.getAssignment()))
+      return failure();
+    return success();
+  }
+
+  // Handle procedures.
+  LogicalResult visit(const slang::ast::ProceduralBlockSymbol &procNode) {
+    auto procOp = builder.create<moore::ProcedureOp>(
+        loc, convertProcedureKind(procNode.procedureKind));
+    procOp.getBodyRegion().emplaceBlock();
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToEnd(procOp.getBody());
+    return context.convertStatement(&procNode.getBody());
   }
 
   /// Emit an error for all other members.
@@ -96,8 +210,8 @@ Context::convertCompilation(slang::ast::Compilation &compilation) {
     for (const auto &member : unit->members()) {
       // Error out on all top-level declarations.
       auto loc = convertLocation(member.location);
-      return mlir::emitError(loc, "unsupported construct: ")
-             << slang::ast::toString(member.kind);
+      if (failed(member.visit(RootMemberVisitor(*this, loc))))
+        return failure();
     }
   }
 
@@ -141,14 +255,27 @@ Context::convertModuleHeader(const slang::ast::InstanceBodySymbol *module) {
   // Handle the port list.
   for (auto *symbol : module->getPortList()) {
     auto portLoc = convertLocation(symbol->location);
-    mlir::emitError(portLoc, "unsupported module port: ")
-        << slang::ast::toString(symbol->kind);
-    return {};
+    auto *port = symbol->as_if<slang::ast::PortSymbol>();
+    if (!port) {
+      mlir::emitError(portLoc, "unsupported module port: `")
+          << symbol->name << "` (" << slang::ast::toString(symbol->kind) << ")";
+      return {};
+    }
+    LLVM_DEBUG(llvm::dbgs() << "- " << port->name << " "
+                            << slang::ast::toString(port->direction) << "\n");
+    if (auto *intSym = port->internalSymbol) {
+      LLVM_DEBUG(llvm::dbgs() << "  - Internal symbol " << intSym->name << " ("
+                              << slang::ast::toString(intSym->kind) << ")\n");
+    }
+    if (auto *expr = port->getInternalExpr()) {
+      LLVM_DEBUG(llvm::dbgs() << "  - Internal expr "
+                              << slang::ast::toString(expr->kind) << "\n");
+    }
   }
 
   // Pick an insertion point for this module according to the source file
   // location.
-  auto it = orderedRootOps.lower_bound(module->location);
+  auto it = orderedRootOps.upper_bound(module->location);
   if (it == orderedRootOps.end())
     builder.setInsertionPointToEnd(intoModuleOp.getBody());
   else
@@ -173,10 +300,17 @@ Context::convertModuleHeader(const slang::ast::InstanceBodySymbol *module) {
 /// already been created earlier through a `convertModuleHeader` call.
 LogicalResult
 Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
+  LLVM_DEBUG(llvm::dbgs() << "Converting body of module " << module->name
+                          << "\n");
   auto moduleOp = moduleOps.lookup(module);
   assert(moduleOp);
   OpBuilder::InsertionGuard g(builder);
   builder.setInsertionPointToEnd(moduleOp.getBody());
+
+  // Create a new scope in a module. When the processing of a module is
+  // terminated, the scope is destroyed and the mappings created in this scope
+  // are dropped.
+  SymbolTableScopeT varScope(varSymbolTable);
 
   for (auto &member : module->members()) {
     auto loc = convertLocation(member.location);

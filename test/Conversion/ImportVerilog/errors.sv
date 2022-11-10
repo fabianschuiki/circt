@@ -36,24 +36,9 @@ endmodule
 
 // -----
 
-module Foo(
-  // expected-error @below {{unsupported module port}}
-  input a
-);
-endmodule
-
-// -----
-
-// expected-error @below {{unsupported construct}}
+// expected-error @below {{unsupported top-level construct}}
 package Foo;
 endpackage
 
 module Bar;
-endmodule
-
-// -----
-
-module Foo;
-  // expected-error @below {{variable initializer expressions not supported}}
-  int a = 0;
 endmodule

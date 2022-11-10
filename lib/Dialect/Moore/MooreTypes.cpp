@@ -30,20 +30,12 @@ using mlir::TypeStorageAllocator;
 // Generated logic
 //===----------------------------------------------------------------------===//
 
-#define GET_TYPEDEF_CLASSES
-#include "circt/Dialect/Moore/MooreTypes.cpp.inc"
-
 void MooreDialect::registerTypes() {
   addTypes<VoidType, StringType, ChandleType, EventType, IntType, RealType,
            PackedNamedType, PackedRefType, UnpackedNamedType, UnpackedRefType,
            PackedUnsizedDim, PackedRangeDim, UnpackedUnsizedDim,
            UnpackedArrayDim, UnpackedRangeDim, UnpackedAssocDim,
            UnpackedQueueDim, EnumType, PackedStructType, UnpackedStructType>();
-
-  addTypes<
-#define GET_TYPEDEF_LIST
-#include "circt/Dialect/Moore/MooreTypes.cpp.inc"
-      >();
 }
 
 //===----------------------------------------------------------------------===//
@@ -446,13 +438,23 @@ unsigned IntType::getBitSize(Kind kind) {
   llvm_unreachable("all kinds should be handled");
 }
 
+IntType::Kind IntType::getAtomForDomain(Domain domain) {
+  switch (domain) {
+  case Domain::TwoValued:
+    return IntType::Bit;
+  case Domain::FourValued:
+    return IntType::Logic;
+  }
+  llvm_unreachable("all domains should be handled");
+}
+
 std::optional<IntType::Kind> IntType::getKindFromDomainAndSize(Domain domain,
                                                                unsigned size) {
+  if (size == 1)
+    return getAtomForDomain(domain);
   switch (domain) {
   case Domain::TwoValued:
     switch (size) {
-    case 1:
-      return IntType::Bit;
     case 8:
       return IntType::Byte;
     case 16:
@@ -466,8 +468,6 @@ std::optional<IntType::Kind> IntType::getKindFromDomainAndSize(Domain domain,
     }
   case Domain::FourValued:
     switch (size) {
-    case 1:
-      return IntType::Logic;
     case 32:
       return IntType::Integer;
     default:
