@@ -61,6 +61,25 @@ struct TypeVisitor {
         packedInnerType, moore::Range(type.range.left, type.range.right));
   }
 
+  Type visit(const slang::ast::AssociativeArrayType &type) {
+    auto innerType = type.elementType.visit(*this);
+    if (!innerType)
+      return {};
+    auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
+    if (!unpackedInnerType) {
+      mlir::emitError(loc, "dynamic unpacked array; ")
+          << type.elementType.toString() << "is associative unpacked";
+      return {};
+    }
+    auto indexType = type.indexType->visit(*this);
+    if (!indexType)
+      return {};
+    auto unpackedIndexType = dyn_cast<moore::UnpackedType>(indexType);
+    if (!unpackedIndexType)
+      return {};
+    return moore::UnpackedAssocDim::get(unpackedInnerType, unpackedIndexType);
+  }
+
   /// Emit an error for all other types.
   template <typename T>
   Type visit(T &&node) {
