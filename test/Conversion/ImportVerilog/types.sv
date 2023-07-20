@@ -22,6 +22,21 @@ module IntAtoms;
   logic signed s0;
   bit signed s1;
   reg signed s2;
+
+// CHECK-LABEL: moore.module @MultiPackedRangeDim
+module MultiPackedRangeDim;
+  // CHECK-NEXT: %v0 = moore.variable : !moore.packed<range<range<logic, 2:0>, 5:0>>
+  // CHECK-NEXT: %v1 = moore.variable : !moore.packed<range<range<logic, 2:0>, 0:5>>
+  logic [5:0][2:0] v0;
+  logic [0:5][2:0] v1;
+endmodule
+
+// CHECK-LABEL: moore.module @MultiUnpackedRangeDim
+module MultiUnpackedRangeDim;
+  // CHECK-NEXT: %v0 = moore.variable : !moore.unpacked<range<range<logic, 2:0>, 5:0>>
+  // CHECK-NEXT: %v1 = moore.variable : !moore.unpacked<range<range<logic, 2:0>, 0:5>>
+  logic v0 [5:0][2:0];
+  logic v1 [0:5][2:0];
 endmodule
 
 // CHECK-LABEL: moore.module @PackedRangeDim
@@ -32,10 +47,10 @@ module PackedRangeDim;
   logic [0:2] d1;
 endmodule
 
-// CHECK-LABEL: moore.module @MultiPackedRangeDim
-module MultiPackedRangeDim;
-  // CHECK-NEXT: %v0 = moore.variable : !moore.packed<range<range<logic, 2:0>, 5:0>>
-  // CHECK-NEXT: %v1 = moore.variable : !moore.packed<range<range<logic, 2:0>, 5:0>>
-  logic [5:0][2:0] v0;
-  logic [0:5][2:0] v1;
+// CHECK-LABEL: moore.module @UnpackedRangeDim
+module UnpackedRangeDim;
+  // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<range<logic, 2:0>>
+  // CHECK-NEXT: %d1 = moore.variable : !moore.unpacked<range<logic, 0:2>>
+  logic d0 [2:0];
+  logic d1 [0:2];
 endmodule
