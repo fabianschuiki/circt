@@ -61,6 +61,19 @@ struct TypeVisitor {
         packedInnerType, moore::Range(type.range.left, type.range.right));
   }
 
+  Type visit(const slang::ast::QueueType &type) {
+    auto innerType = type.elementType.visit(*this);
+    if (!innerType)
+      return {};
+    auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
+    if (!unpackedInnerType) {
+      mlir::emitError(loc, "dynamic unpacked array; ")
+          << type.elementType.toString() << "is queue unpacked";
+      return {};
+    }
+    return moore::UnpackedQueueDim::get(unpackedInnerType, type.maxBound);
+  }
+
   /// Emit an error for all other types.
   template <typename T>
   Type visit(T &&node) {
