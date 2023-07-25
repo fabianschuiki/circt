@@ -116,6 +116,18 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
 
+    // Handle Nets.
+    if (member.kind == slang::ast::SymbolKind::Net) {
+      auto &netAst = member.as<slang::ast::NetSymbol>();
+      auto loweredType = convertType(*netAst.getDeclaredType());
+      if (!loweredType)
+        return failure();
+      builder.create<moore::VariableOp>(convertLocation(netAst.location),
+                                        loweredType,
+                                        builder.getStringAttr(netAst.name));
+      continue;
+    }
+
     mlir::emitError(loc, "unsupported module member: ")
         << slang::ast::toString(member.kind);
     return failure();
