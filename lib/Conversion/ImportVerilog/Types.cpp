@@ -47,6 +47,54 @@ struct TypeVisitor {
     return moore::IntType::get(context.getContext(), kind, sign);
   }
 
+  Type visit(const slang::ast::FloatingType &type) {
+    moore::RealType::Kind kind;
+    switch (type.floatKind) {
+    case slang::ast::FloatingType::Real:
+      kind = moore::RealType::Real;
+      break;
+    case slang::ast::FloatingType::ShortReal:
+      kind = moore::RealType::ShortReal;
+      break;
+    case slang::ast::FloatingType::RealTime:
+      kind = moore::RealType::RealTime;
+      break;
+    }
+
+    return moore::RealType::get(context.getContext(), kind);
+  }
+
+  Type visit(const slang::ast::PredefinedIntegerType &type) {
+    moore::IntType::Kind kind;
+    switch (type.integerKind) {
+    case slang::ast::PredefinedIntegerType::Int:
+      kind = moore::IntType::Int;
+      break;
+    case slang::ast::PredefinedIntegerType::ShortInt:
+      kind = moore::IntType::ShortInt;
+      break;
+    case slang::ast::PredefinedIntegerType::LongInt:
+      kind = moore::IntType::LongInt;
+      break;
+    case slang::ast::PredefinedIntegerType::Integer:
+      kind = moore::IntType::Integer;
+      break;
+    case slang::ast::PredefinedIntegerType::Byte:
+      kind = moore::IntType::Byte;
+      break;
+    case slang::ast::PredefinedIntegerType::Time:
+      kind = moore::IntType::Time;
+      break;
+    }
+
+    std::optional<moore::Sign> sign =
+        type.isSigned ? moore::Sign::Signed : moore::Sign::Unsigned;
+    if (sign == moore::IntType::getDefaultSign(kind))
+      sign = {};
+
+    return moore::IntType::get(context.getContext(), kind, sign);
+  }
+
   Type visit(const slang::ast::PackedArrayType &type) {
     auto innerType = type.elementType.visit(*this);
     if (!innerType)
@@ -68,11 +116,24 @@ struct TypeVisitor {
     auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
     if (!unpackedInnerType) {
       mlir::emitError(loc, "dynamic unpacked array; ")
-          << type.elementType.toString() << "is fixed size unpacked";
+          << type.elementType.toString() << " is fixed size unpacked";
       return {};
     }
     return moore::UnpackedRangeDim::get(
         unpackedInnerType, moore::Range(type.range.left, type.range.right));
+  }
+
+  Type visit(const slang::ast::DynamicArrayType &type) {
+    auto innerType = type.elementType.visit(*this);
+    if (!innerType)
+      return {};
+    auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
+    if (!unpackedInnerType) {
+      mlir::emitError(loc, "fixed size unpacked array; ")
+          << type.elementType.toString() << " is dynamic size unpacked";
+      return {};
+    }
+    return moore::UnpackedUnsizedDim::get(unpackedInnerType);
   }
 
   /// Emit an error for all other types.
