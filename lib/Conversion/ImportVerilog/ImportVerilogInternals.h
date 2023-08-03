@@ -48,6 +48,7 @@ struct Context {
   /// generally a good idea to pass in a location.
   Type convertType(const slang::ast::Type &type, LocationAttr loc = {});
   Type convertType(const slang::ast::DeclaredType &type);
+  slang::SVInt convertExpr(const slang::ast::Expression &expr, LocationAttr loc);
 
   LogicalResult convertCompilation();
   Operation *convertModuleHeader(const slang::ast::InstanceBodySymbol *module);

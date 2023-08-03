@@ -107,12 +107,23 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     // Handle variables.
     if (member.kind == slang::ast::SymbolKind::Variable) {
       auto &varAst = member.as<slang::ast::VariableSymbol>();
-      auto loweredType = convertType(*varAst.getDeclaredType());
+      auto &declaredType = *varAst.getDeclaredType();
+      auto loweredType = convertType(declaredType);
       if (!loweredType)
         return failure();
+      auto *init = declaredType.getInitializer();
+      if(init){
+        auto eval = convertExpr(*init, loc);
+        builder.create<moore::VariableDeclOp>(convertLocation(varAst.location),
+                                  moore::LValueType::get(loweredType),
+                                  builder.getStringAttr(varAst.name),
+                                  int64_t(*(eval.getRawPtr())));
+      }
+      else{
       builder.create<moore::VariableOp>(convertLocation(varAst.location),
                                         loweredType,
                                         builder.getStringAttr(varAst.name));
+      }
       continue;
     }
 
