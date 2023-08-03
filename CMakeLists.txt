@@ -513,7 +513,7 @@ endif()
 
 option(CIRCT_SLANG_FRONTEND_ENABLED "Enables slang Verilog frontend." ON)
 option(CIRCT_SLANG_BUILD_FROM_SOURCE
-  "Build slang from source instead of finding an installed package" ON)
+  "Build slang from source instead of finding an installed package" OFF)
 
 llvm_canonicalize_cmake_booleans(CIRCT_SLANG_FRONTEND_ENABLED)
 if(CIRCT_SLANG_FRONTEND_ENABLED)
@@ -540,7 +540,13 @@ if(CIRCT_SLANG_FRONTEND_ENABLED)
     install(TARGETS slang_slang unordered_dense EXPORT CIRCTTargets)
     set(CMAKE_CXX_FLAGS ${original_CXX_FLAGS})
   else()
-    find_package(slang 2.0 REQUIRED)
+    # If you use the external way, you should use configure and build slang 
+    # with 4.0.0 version. Clone the slang and checkout to v4.0
+    # if you failed to build the slang v4.0 due to
+    # conflicts about package version used in slang, you can run with
+    # -DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER to force it to download the
+    # correct version and build with that.
+    find_package(slang 4.0.0 EXACT)
   endif()
 endif()
 

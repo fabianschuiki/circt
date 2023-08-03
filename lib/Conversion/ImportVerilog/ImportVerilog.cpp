@@ -163,7 +163,9 @@ mlir::OwningOpRef<mlir::ModuleOp> circt::importVerilog(SourceMgr &sourceMgr,
     const llvm::MemoryBuffer *mlirBuffer = sourceMgr.getMemoryBuffer(i + 1);
     auto slangBuffer = driver.sourceManager.assignText(
         mlirBuffer->getBufferIdentifier(), mlirBuffer->getBuffer());
-    driver.buffers.push_back(slangBuffer);
+    // driver.buffers.push_back(slangBuffer); 
+    // slang use sourceLoader to replace the buffers in slang v4.0
+    driver.sourceLoader.addFiles(mlirBuffer->getBufferIdentifier());
     bufferFilePaths.insert({slangBuffer.id, mlirBuffer->getBufferIdentifier()});
   }
 
