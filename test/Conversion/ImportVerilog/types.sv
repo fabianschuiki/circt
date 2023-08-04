@@ -114,7 +114,7 @@ module UnpackedAssocDim;
   // CEECK-NEXT: %d1 = moore.variable : !moore.unpacked<assoc<logic, logic>>
   logic d0 [int];
   logic d1 [logic];
-endmodule
+endmodule;
 
 // CHECK-LABEL: moore.module @UnpackedQueueDim
 module UnpackedQueueDim;
@@ -137,4 +137,3 @@ module UnpackedUnsizedDim;
   // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<unsized<logic>>
   logic d0 [];
 endmodule
-
