@@ -116,6 +116,42 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
 
+    // Handle AssignOp.
+    if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
+      auto &assignAst = member.as<slang::ast::ContinuousAssignSymbol>();
+      auto assignment = &assignAst.getAssignment();
+      auto assignExpr = &assignment->as<slang::ast::AssignmentExpression>();
+
+      // Represents the name of variable.
+      auto destName = assignExpr->left().getSymbolReference()->name;
+      auto loweredType = convertType(*assignExpr->left().type);
+      auto loc = convertLocation(assignAst.location);
+
+      // This gets the address of the variable.
+      auto destLoc =
+          convertLocation(assignExpr->left().getSymbolReference()->location);
+
+      // To handle the operand on the right side of an expression.
+      auto exprRight =
+          &assignExpr->right().as<slang::ast::ConversionExpression>();
+
+      slang::ast::EvalContext ctx(compilation);
+      IntegerType srcType =
+          builder.getIntegerType(exprRight->operand().type->getBitWidth());
+      IntegerAttr srcValue = builder.getIntegerAttr(
+          srcType, *exprRight->operand().eval(ctx).integer().getRawPtr());
+
+      Value dest = builder.create<moore::VariableDeclOp>(
+          destLoc, moore::LValueType::get(loweredType),
+          builder.getStringAttr(destName),
+          *exprRight->operand().eval(ctx).integer().getRawPtr());
+      Value src = builder.create<moore::ConstantOp>(
+          loc, convertType(*assignExpr->right().type), srcValue);
+
+      builder.create<moore::AssignOp>(loc, dest, src);
+      continue;
+    }
+
     mlir::emitError(loc, "unsupported module member: ")
         << slang::ast::toString(member.kind);
     return failure();
