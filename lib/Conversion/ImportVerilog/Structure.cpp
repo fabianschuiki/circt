@@ -116,7 +116,19 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
 
-    // Handle AssignOp.
+    // Handle Nets.
+    if (member.kind == slang::ast::SymbolKind::Net) {
+      auto &netAst = member.as<slang::ast::NetSymbol>();
+      auto loweredType = convertType(*netAst.getDeclaredType());
+      if (!loweredType)
+        return failure();
+      builder.create<moore::VariableOp>(convertLocation(netAst.location),
+                                        loweredType,
+                                        builder.getStringAttr(netAst.name));
+      continue;
+    }
+    
+     // Handle AssignOp.
     if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
       auto &assignAst = member.as<slang::ast::ContinuousAssignSymbol>();
       auto assignment = &assignAst.getAssignment();
@@ -148,7 +160,7 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       Value src = builder.create<moore::ConstantOp>(
           loc, convertType(*assignExpr->right().type), srcValue);
 
-      builder.create<moore::AssignOp>(loc, dest, src);
+      builder.create<moore::AssignOp>(loc, dest, src); 
       continue;
     }
 
