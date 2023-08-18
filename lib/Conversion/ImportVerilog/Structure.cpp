@@ -128,7 +128,7 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
     
-     // Handle AssignOp.
+    // Handle AssignOp.
     if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
       auto &assignAst = member.as<slang::ast::ContinuousAssignSymbol>();
       auto assignment = &assignAst.getAssignment();
