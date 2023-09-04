@@ -116,6 +116,47 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
 
+    // Handle AssignOp.
+    if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
+      auto &assignAst = member.as<slang::ast::ContinuousAssignSymbol>();
+      auto assignment = &assignAst.getAssignment();
+      convertExpression(assignment);
+      continue;
+    }
+
+    // Handle ProceduralBlock.
+    if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
+      auto &procAst = member.as<slang::ast::ProceduralBlockSymbol>();
+      auto loc = convertLocation(procAst.location);
+      switch (procAst.procedureKind) {
+      case slang::ast::ProceduralBlockKind::AlwaysComb:
+        builder.create<moore::AlwaysCombOp>(
+            loc, [&]() -> void { convertStatement(&procAst.getBody()); });
+        break;
+      case slang::ast::ProceduralBlockKind::Initial:
+        builder.create<moore::InitialOp>(
+            loc, [&]() -> void { convertStatement(&procAst.getBody()); });
+        break;
+      case slang::ast::ProceduralBlockKind::AlwaysLatch:
+        assert(0 && "TODO");
+        break;
+      case slang::ast::ProceduralBlockKind::AlwaysFF:
+        assert(0 && "TODO");
+        break;
+      case slang::ast::ProceduralBlockKind::Always:
+        assert(0 && "TODO");
+        break;
+      case slang::ast::ProceduralBlockKind::Final:
+        assert(0 && "TODO");
+        break;
+      default:
+        mlir::emitError(loc, "unsupport proceduralBlockKind");
+        break;
+      }
+
+      continue;
+    }
+
     mlir::emitError(loc, "unsupported module member: ")
         << slang::ast::toString(member.kind);
     return failure();
