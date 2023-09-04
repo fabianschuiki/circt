@@ -116,15 +116,15 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
     
-    // Handle variables.
-    if (member.kind == slang::ast::SymbolKind::Variable) {
-      auto &varAst = member.as<slang::ast::VariableSymbol>();
-      auto loweredType = convertType(*varAst.getDeclaredType());
+    // Handle Nets.
+    if (member.kind == slang::ast::SymbolKind::Net) {
+      auto &netAst = member.as<slang::ast::NetSymbol>();
+      auto loweredType = convertType(*netAst.getDeclaredType());
       if (!loweredType)
         return failure();
-      builder.create<moore::VariableOp>(convertLocation(varAst.location),
+      builder.create<moore::VariableOp>(convertLocation(netAst.location),
                                         loweredType,
-                                        builder.getStringAttr(varAst.name));
+                                        builder.getStringAttr(netAst.name));
       continue;
     }
 
