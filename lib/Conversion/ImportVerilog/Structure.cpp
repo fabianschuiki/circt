@@ -115,6 +115,18 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
                                         builder.getStringAttr(varAst.name));
       continue;
     }
+    
+    // Handle variables.
+    if (member.kind == slang::ast::SymbolKind::Variable) {
+      auto &varAst = member.as<slang::ast::VariableSymbol>();
+      auto loweredType = convertType(*varAst.getDeclaredType());
+      if (!loweredType)
+        return failure();
+      builder.create<moore::VariableOp>(convertLocation(varAst.location),
+                                        loweredType,
+                                        builder.getStringAttr(varAst.name));
+      continue;
+    }
 
     // Handle AssignOp.
     if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
