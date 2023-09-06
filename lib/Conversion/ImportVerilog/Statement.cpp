@@ -26,6 +26,8 @@ void Context::convertExpression(const slang::ast::Expression *expression) {
     assert(0 && "TODO");
     break;
   case slang::ast::ExpressionKind::NamedValue:
+    // I think that needs to call another function, like visitExpr(...), which
+    // handles details about expressions.
     assert(0 && "TODO");
     break;
   case slang::ast::ExpressionKind::UnaryOp:
@@ -35,8 +37,6 @@ void Context::convertExpression(const slang::ast::Expression *expression) {
     assert(0 && "TODO");
     break;
   case slang::ast::ExpressionKind::Assignment:
-    // I think that needs to call another function, like visitExpr(...), which
-    // handles details about expressions.
     assert(0 && "TODO");
     break;
   case slang::ast::ExpressionKind::Conversion:
