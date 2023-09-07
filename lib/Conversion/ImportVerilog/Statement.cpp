@@ -19,43 +19,36 @@
 using namespace circt;
 using namespace ImportVerilog;
 
-void Context::convertExpression(const slang::ast::Expression *expression) {
+LogicalResult Context::convertExpression(const slang::ast::Expression *expression) {
   auto loc = convertLocation(expression->sourceRange.start());
   switch (expression->kind) {
   case slang::ast::ExpressionKind::IntegerLiteral:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported expression: interger literal");
   case slang::ast::ExpressionKind::NamedValue:
     // I think that needs to call another function, like visitExpr(...), which
     // handles details about expressions.
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported expression: named value");
   case slang::ast::ExpressionKind::UnaryOp:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported expression: unary operator");
   case slang::ast::ExpressionKind::BinaryOp:
-    assert(0 && "TODO");
-    break;
+   return mlir::emitError(loc, "unsupported expression: binary operator");
   case slang::ast::ExpressionKind::Assignment:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported expression: assignment");
   case slang::ast::ExpressionKind::Conversion:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported expression: conversion");
     // Other cases need to be appended.
   default:
     mlir::emitError(loc, "unsupported ExpressionKind");
-    break;
+    return failure();
   }
 }
 
-void Context::convertStatement(const slang::ast::Statement *statement) {
+LogicalResult Context::convertStatement(const slang::ast::Statement *statement) {
   auto loc = convertLocation(statement->sourceRange.start());
   switch (statement->kind) {
   case slang::ast::StatementKind::List:
-    for (auto it = statement->as<slang::ast::StatementList>().list.begin();
-         it != statement->as<slang::ast::StatementList>().list.end(); it++) {
-      convertStatement(*it);
+    for (auto *stmt : statement->as<slang::ast::StatementList>().list) {
+      convertStatement(stmt);
     }
     break;
   case slang::ast::StatementKind::Block:
@@ -65,85 +58,59 @@ void Context::convertStatement(const slang::ast::Statement *statement) {
     convertExpression(&statement->as<slang::ast::ExpressionStatement>().expr);
     break;
   case slang::ast::StatementKind::VariableDeclaration:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: variable declaration");
   case slang::ast::StatementKind::Return:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: return");
   case slang::ast::StatementKind::Break:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: break");
   case slang::ast::StatementKind::Continue:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: continue");
   case slang::ast::StatementKind::Case:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: case");
   case slang::ast::StatementKind::PatternCase:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: pattern case");
   case slang::ast::StatementKind::ForLoop:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: for loop");
   case slang::ast::StatementKind::RepeatLoop:
-    assert(0 && "TODO");
-    break;
+   return mlir::emitError(loc, "unsupported statement: repeat loop");
   case slang::ast::StatementKind::ForeachLoop:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: foreach loop");
   case slang::ast::StatementKind::WhileLoop:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: while loop");
   case slang::ast::StatementKind::DoWhileLoop:
-    assert(0 && "TODO");
-    break;
+   return mlir::emitError(loc, "unsupported statement: do while loop");
   case slang::ast::StatementKind::ForeverLoop:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: forever loop");
   case slang::ast::StatementKind::Timed:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: timed");
   case slang::ast::StatementKind::ImmediateAssertion:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: immediate assertion");
   case slang::ast::StatementKind::ConcurrentAssertion:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: concurrent assertion");
   case slang::ast::StatementKind::DisableFork:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: diable fork");
   case slang::ast::StatementKind::Wait:
-    assert(0 && "TODO");
-    break;
+   return mlir::emitError(loc, "unsupported statement: wait");
   case slang::ast::StatementKind::WaitFork:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: wait fork");
   case slang::ast::StatementKind::WaitOrder:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: wait order");
   case slang::ast::StatementKind::EventTrigger:
-    assert(0 && "TODO");
-    break;
+   return mlir::emitError(loc, "unsupported statement: event trigger");
   case slang::ast::StatementKind::ProceduralAssign:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: procedural assign");
   case slang::ast::StatementKind::ProceduralDeassign:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: procedural deassign");
   case slang::ast::StatementKind::RandCase:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: rand case");
   case slang::ast::StatementKind::RandSequence:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: rand sequence");
   case slang::ast::StatementKind::ProceduralChecker:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: procedural checker");
   case slang::ast::StatementKind::Conditional:
-    assert(0 && "TODO");
-    break;
+    return mlir::emitError(loc, "unsupported statement: conditional");
   default:
     mlir::emitRemark(loc, "unsupported statement");
-    break;
+    return failure();
   }
 }
