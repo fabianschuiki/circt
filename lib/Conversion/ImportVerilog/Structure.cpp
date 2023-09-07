@@ -150,20 +150,18 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
             loc, [&]() -> void { convertStatement(&procAst.getBody()); });
         break;
       case slang::ast::ProceduralBlockKind::AlwaysLatch:
-        assert(0 && "TODO");
-        break;
+        return mlir::emitError(loc,
+                               "unsupported procedural block: always latch");
       case slang::ast::ProceduralBlockKind::AlwaysFF:
-        assert(0 && "TODO");
-        break;
+        return mlir::emitError(
+            loc, "unsupported procedural block: always flip-flop");
       case slang::ast::ProceduralBlockKind::Always:
-        assert(0 && "TODO");
-        break;
+        return mlir::emitError(loc, "unsupported procedural block: always");
       case slang::ast::ProceduralBlockKind::Final:
-        assert(0 && "TODO");
-        break;
+        return mlir::emitError(loc, "unsupported procedural block: final");
       default:
-        mlir::emitError(loc, "unsupport proceduralBlockKind");
-        break;
+        mlir::emitError(loc, "unsupported procedural block");
+        return failure();
       }
 
       continue;
