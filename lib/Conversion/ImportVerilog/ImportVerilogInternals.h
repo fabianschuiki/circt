@@ -53,8 +53,8 @@ struct Context {
   Operation *convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
   LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
 
-  void convertStatement(const slang::ast::Statement *statement);
-  void convertExpression(const slang::ast::Expression *expression);
+  LogicalResult convertStatement(const slang::ast::Statement *statement);
+  LogicalResult convertExpression(const slang::ast::Expression *expression);
 
   mlir::ModuleOp intoModuleOp;
   const slang::SourceManager &sourceManager;
