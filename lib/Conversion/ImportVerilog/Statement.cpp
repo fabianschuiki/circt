@@ -41,6 +41,8 @@ LogicalResult Context::convertExpression(const slang::ast::Expression *expressio
     mlir::emitError(loc, "unsupported ExpressionKind");
     return failure();
   }
+    
+  return success();
 }
 
 LogicalResult Context::convertStatement(const slang::ast::Statement *statement) {
@@ -113,4 +115,6 @@ LogicalResult Context::convertStatement(const slang::ast::Statement *statement) 
     mlir::emitRemark(loc, "unsupported statement");
     return failure();
   }
+  
+  return success();
 }
