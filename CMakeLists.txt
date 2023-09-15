@@ -513,7 +513,7 @@ endif()
 
 option(CIRCT_SLANG_FRONTEND_ENABLED "Enables slang Verilog frontend." ON)
 option(CIRCT_SLANG_BUILD_FROM_SOURCE
-  "Build slang from source instead of finding an installed package" OFF)
+  "Build slang from source instead of finding an installed package" ON)
 
 llvm_canonicalize_cmake_booleans(CIRCT_SLANG_FRONTEND_ENABLED)
 if(CIRCT_SLANG_FRONTEND_ENABLED)
@@ -521,32 +521,33 @@ if(CIRCT_SLANG_FRONTEND_ENABLED)
   if(CIRCT_SLANG_BUILD_FROM_SOURCE)
     # Build slang as part of CIRCT (see https://sv-lang.com/building.html)
     message(STATUS "Building slang from source")
-    set(original_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+    set(original_CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+    set(original_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
     set(CMAKE_CXX_FLAGS "")
+    set(BUILD_SHARED_LIBS OFF)  # statically link slang into ImportVerilog
     include(FetchContent)
     FetchContent_Declare(
       slang
       GIT_REPOSITORY https://github.com/MikePopoloski/slang.git
-      GIT_TAG v2.0
+      GIT_TAG v3.0
       GIT_SHALLOW ON)
+    set(SLANG_INCLUDE_TOOLS OFF CACHE INTERNAL "")
+    set(SLANG_INCLUDE_TESTS OFF CACHE INTERNAL "")
+    set(SLANG_INCLUDE_INSTALL OFF CACHE INTERNAL "")
+    set(SLANG_USE_MIMALLOC OFF CACHE INTERNAL "")
     FetchContent_MakeAvailable(slang)
     # The following feels *very* hacky, but CMake complains about the
     # CIRCTImportVerilog target linking against slang_slang (even with PRIVATE
     # linking) without the latter being in an export set. I think we'd want to
     # statically link slang into the CIRCTImportVerilog library, but seems to be
     # harder than it ought to be.
-    set_property(GLOBAL APPEND PROPERTY CIRCT_EXPORTS slang_slang
-                                                      unordered_dense)
-    install(TARGETS slang_slang unordered_dense EXPORT CIRCTTargets)
-    set(CMAKE_CXX_FLAGS ${original_CXX_FLAGS})
+    set_property(GLOBAL APPEND PROPERTY CIRCT_EXPORTS
+      slang_slang unordered_dense fmt)
+    install(TARGETS slang_slang unordered_dense fmt EXPORT CIRCTTargets)
+    set(CMAKE_CXX_FLAGS ${original_CMAKE_CXX_FLAGS})
+    set(BUILD_SHARED_LIBS ${original_BUILD_SHARED_LIBS})
   else()
-    # If you use the external way, you should use configure and build slang 
-    # with 4.0.0 version. Clone the slang and checkout to v4.0
-    # if you failed to build the slang v4.0 due to
-    # conflicts about package version used in slang, you can run with
-    # -DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER to force it to download the
-    # correct version and build with that.
-    find_package(slang 4.0.0 EXACT)
+    find_package(slang 3.0 REQUIRED)
   endif()
 endif()
 
