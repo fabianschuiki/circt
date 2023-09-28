@@ -522,9 +522,7 @@ if(CIRCT_SLANG_FRONTEND_ENABLED)
     # Build slang as part of CIRCT (see https://sv-lang.com/building.html)
     message(STATUS "Building slang from source")
     set(original_CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    set(original_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
     set(CMAKE_CXX_FLAGS "")
-    set(BUILD_SHARED_LIBS OFF)  # statically link slang into ImportVerilog
     include(FetchContent)
     FetchContent_Declare(
       slang
@@ -535,6 +533,7 @@ if(CIRCT_SLANG_FRONTEND_ENABLED)
     set(SLANG_INCLUDE_TESTS OFF CACHE INTERNAL "")
     set(SLANG_INCLUDE_INSTALL OFF CACHE INTERNAL "")
     set(SLANG_USE_MIMALLOC OFF CACHE INTERNAL "")
+    set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE "NEVER")
     FetchContent_MakeAvailable(slang)
     # The following feels *very* hacky, but CMake complains about the
     # CIRCTImportVerilog target linking against slang_slang (even with PRIVATE
@@ -545,7 +544,6 @@ if(CIRCT_SLANG_FRONTEND_ENABLED)
       slang_slang unordered_dense fmt)
     install(TARGETS slang_slang unordered_dense fmt EXPORT CIRCTTargets)
     set(CMAKE_CXX_FLAGS ${original_CMAKE_CXX_FLAGS})
-    set(BUILD_SHARED_LIBS ${original_BUILD_SHARED_LIBS})
   else()
     find_package(slang 3.0 REQUIRED)
   endif()
