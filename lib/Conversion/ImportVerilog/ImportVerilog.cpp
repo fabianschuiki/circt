@@ -204,7 +204,9 @@ mlir::OwningOpRef<mlir::ModuleOp> circt::importVerilog(SourceMgr &sourceMgr,
                                                        mlir::TimingScope &ts) {
   try {
     return importVerilogWithExceptions(sourceMgr, context, ts);
-  } catch (...) {
+  } catch (const std::exception &e) {
+    mlir::emitError(UnknownLoc::get(context), "internal slang error: ")
+        << e.what();
     return {};
   }
 }
