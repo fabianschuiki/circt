@@ -521,26 +521,43 @@ if(CIRCT_SLANG_FRONTEND_ENABLED)
   if(CIRCT_SLANG_BUILD_FROM_SOURCE)
     # Build slang as part of CIRCT (see https://sv-lang.com/building.html)
     message(STATUS "Building slang from source")
-    set(original_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    set(CMAKE_CXX_FLAGS "")
     include(FetchContent)
     FetchContent_Declare(
       slang
       GIT_REPOSITORY https://github.com/MikePopoloski/slang.git
-      GIT_TAG v2.0
+      GIT_TAG v3.0
       GIT_SHALLOW ON)
+    set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE "NEVER")
+
+    # Force Slang to be built as a static library to avoid messing around with
+    # RPATHs and installing a slang dylib alongside CIRCT. The static library
+    # will embed Slang into ImportVerilog.
+    set(original_CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+    set(original_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+
+    set(CMAKE_CXX_FLAGS "")
+    set(BUILD_SHARED_LIBS OFF)
     FetchContent_MakeAvailable(slang)
+
+    set(CMAKE_CXX_FLAGS ${original_CMAKE_CXX_FLAGS})
+    set(BUILD_SHARED_LIBS ${original_BUILD_SHARED_LIBS})
+
+    if(BUILD_SHARED_LIBS)
+      set_target_properties(slang_slang PROPERTIES POSITION_INDEPENDENT_CODE ON)
+      set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
+      set_target_properties(unordered_dense PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+
     # The following feels *very* hacky, but CMake complains about the
     # CIRCTImportVerilog target linking against slang_slang (even with PRIVATE
     # linking) without the latter being in an export set. I think we'd want to
     # statically link slang into the CIRCTImportVerilog library, but seems to be
     # harder than it ought to be.
-    set_property(GLOBAL APPEND PROPERTY CIRCT_EXPORTS slang_slang
-                                                      unordered_dense)
-    install(TARGETS slang_slang unordered_dense EXPORT CIRCTTargets)
-    set(CMAKE_CXX_FLAGS ${original_CXX_FLAGS})
+    set_property(
+      GLOBAL APPEND PROPERTY CIRCT_EXPORTS slang_slang unordered_dense fmt)
+    install(TARGETS slang_slang unordered_dense fmt EXPORT CIRCTTargets)
   else()
-    find_package(slang 2.0 REQUIRED)
+    find_package(slang 3.0 REQUIRED)
   endif()
 endif()
 
