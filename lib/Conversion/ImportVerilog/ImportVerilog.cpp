@@ -130,10 +130,9 @@ struct DenseMapInfo<slang::BufferID> {
 };
 } // namespace llvm
 
-// Parse the specified Verilog inputs into the specified MLIR context.
-mlir::OwningOpRef<mlir::ModuleOp> circt::importVerilog(SourceMgr &sourceMgr,
-                                                       MLIRContext *context,
-                                                       mlir::TimingScope &ts) {
+static mlir::OwningOpRef<mlir::ModuleOp>
+importVerilogWithExceptions(SourceMgr &sourceMgr, MLIRContext *context,
+                            mlir::TimingScope &ts) {
   // Use slang's driver which conveniently packages a lot of the things we need
   // for compilation.
   slang::driver::Driver driver;
@@ -197,6 +196,17 @@ mlir::OwningOpRef<mlir::ModuleOp> circt::importVerilog(SourceMgr &sourceMgr,
   if (failed(verify(*module)))
     return {};
   return module;
+}
+
+// Parse the specified Verilog inputs into the specified MLIR context.
+mlir::OwningOpRef<mlir::ModuleOp> circt::importVerilog(SourceMgr &sourceMgr,
+                                                       MLIRContext *context,
+                                                       mlir::TimingScope &ts) {
+  try {
+    return importVerilogWithExceptions(sourceMgr, context, ts);
+  } catch (...) {
+    return {};
+  }
 }
 
 void circt::registerFromVerilogTranslation() {
