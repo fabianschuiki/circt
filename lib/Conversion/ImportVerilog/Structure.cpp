@@ -35,7 +35,7 @@ LogicalResult Context::convertCompilation() {
 
   // Convert all the root module definitions.
   while (!moduleWorklist.empty()) {
-    auto module = moduleWorklist.front();
+    auto *module = moduleWorklist.front();
     moduleWorklist.pop();
     if (failed(convertModuleBody(module)))
       return failure();
@@ -60,6 +60,28 @@ Context::convertModuleHeader(const slang::ast::InstanceBodySymbol *module) {
     return nullptr;
   }
 
+  // Handle the port list.
+  LLVM_DEBUG(llvm::dbgs() << "Ports of module " << module->name << "\n");
+  for (auto *symbol : module->getPortList()) {
+    auto portLoc = convertLocation(symbol->location);
+    auto *port = symbol->as_if<slang::ast::PortSymbol>();
+    if (!port) {
+      mlir::emitError(portLoc, "unsupported port: `")
+          << symbol->name << "` (" << slang::ast::toString(symbol->kind) << ")";
+      return nullptr;
+    }
+    LLVM_DEBUG(llvm::dbgs() << "- " << port->name << " "
+                            << slang::ast::toString(port->direction) << "\n");
+    if (auto *intSym = port->internalSymbol) {
+      LLVM_DEBUG(llvm::dbgs() << "  - Internal symbol " << intSym->name << " ("
+                              << slang::ast::toString(intSym->kind) << ")\n");
+    }
+    if (auto *expr = port->getInternalExpr()) {
+      LLVM_DEBUG(llvm::dbgs() << "  - Internal expr "
+                              << slang::ast::toString(expr->kind) << "\n");
+    }
+  }
+
   // Create an empty module that corresponds to this module.
   auto moduleOp = rootBuilder.create<moore::SVModuleOp>(loc, module->name);
   moduleOp.getBody().emplaceBlock();
@@ -78,7 +100,7 @@ LogicalResult
 Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
   LLVM_DEBUG(llvm::dbgs() << "Converting body of module " << module->name
                           << "\n");
-  auto moduleOp = moduleOps.lookup(module);
+  auto *moduleOp = moduleOps.lookup(module);
   assert(moduleOp);
   auto builder =
       OpBuilder::atBlockEnd(&cast<moore::SVModuleOp>(moduleOp).getBodyBlock());
@@ -88,47 +110,90 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
                << "- Handling " << slang::ast::toString(member.kind) << "\n");
     auto loc = convertLocation(member.location);
 
-    // Skip parameters.
+    // Skip parameters. The AST is already monomorphized.
     if (member.kind == slang::ast::SymbolKind::Parameter)
       continue;
 
     // Handle instances.
-    if (member.kind == slang::ast::SymbolKind::Instance) {
-      auto &instAst = member.as<slang::ast::InstanceSymbol>();
-      auto targetModule = convertModuleHeader(&instAst.body);
+    if (auto *instAst = member.as_if<slang::ast::InstanceSymbol>()) {
+      auto *targetModule = convertModuleHeader(&instAst->body);
       if (!targetModule)
         return failure();
       builder.create<moore::InstanceOp>(
-          loc, builder.getStringAttr(instAst.name),
+          loc, builder.getStringAttr(instAst->name),
           FlatSymbolRefAttr::get(SymbolTable::getSymbolName(targetModule)));
       continue;
     }
 
     // Handle variables.
-    if (member.kind == slang::ast::SymbolKind::Variable) {
-      auto &varAst = member.as<slang::ast::VariableSymbol>();
-      auto loweredType = convertType(*varAst.getDeclaredType());
+    if (auto *varAst = member.as_if<slang::ast::VariableSymbol>()) {
+      auto loweredType = convertType(*varAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      builder.create<moore::VariableOp>(convertLocation(varAst.location),
-                                        loweredType,
-                                        builder.getStringAttr(varAst.name));
+      auto loc = convertLocation(varAst->location);
+
+      auto *initializer = varAst->getInitializer();
+      if (initializer) {
+        if (initializer->kind == slang::ast::ExpressionKind::NamedValue) {
+          if (!varSymbolTable.count(initializer->getSymbolReference()->name)) {
+            mlir::emitError(loc, "unknown variable '")
+                << initializer->getSymbolReference()->name << "'";
+            continue;
+          }
+          mlir::emitError(loc, "unsupported variable declaration");
+        } else {
+          slang::ast::EvalContext ctx(compilation);
+          auto initValue = *initializer->eval(ctx).integer().getRawPtr();
+          auto val = builder.create<moore::VariableDeclOp>(
+              loc, moore::LValueType::get(loweredType), varAst->name,
+              initValue);
+          varSymbolTable.insert(varAst->name, val);
+        }
+      } else {
+        auto val = builder.create<moore::VariableOp>(
+            loc, moore::LValueType::get(loweredType), varAst->name);
+        varSymbolTable.insert(varAst->name, val);
+      }
       continue;
     }
 
     // Handle Nets.
-    if (member.kind == slang::ast::SymbolKind::Net) {
-      auto &netAst = member.as<slang::ast::NetSymbol>();
-      auto loweredType = convertType(*netAst.getDeclaredType());
+    if (auto *netAst = member.as_if<slang::ast::NetSymbol>()) {
+      auto loweredType = convertType(*netAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      builder.create<moore::VariableOp>(convertLocation(netAst.location),
-                                        loweredType,
-                                        builder.getStringAttr(netAst.name));
+      auto loc = convertLocation(netAst->location);
+      auto *initializer = netAst->getInitializer();
+
+      if (initializer) {
+        if (initializer->kind == slang::ast::ExpressionKind::NamedValue) {
+          if (!varSymbolTable.count(initializer->getSymbolReference()->name)) {
+            mlir::emitError(loc, "unknown variable '")
+                << initializer->getSymbolReference()->name << "'";
+            continue;
+          }
+          mlir::emitError(loc, "unsupported variable declaration");
+        } else {
+          slang::ast::EvalContext ctx(compilation);
+          auto initValue = initializer->eval(ctx).integer().getNumWords();
+          Value val = builder.create<moore::VariableDeclOp>(
+              loc, moore::LValueType::get(loweredType), netAst->name,
+              initValue);
+          varSymbolTable.insert(netAst->name, val);
+        }
+      } else {
+        Value val = builder.create<moore::VariableOp>(
+            loc, moore::LValueType::get(loweredType), netAst->name);
+        varSymbolTable.insert(netAst->name, val);
+      }
       continue;
     }
 
-    mlir::emitError(loc, "unsupported module member: ")
+    // Otherwise just report that we don't support this SV construct yet and
+    // skip over it. We'll want to make this an error, but in the early phases
+    // we'll just want to cover ground as quickly as possible and skip over
+    // things we don't support.
+    mlir::emitWarning(loc, "unsupported construct ignored: ")
         << slang::ast::toString(member.kind);
     return failure();
   }

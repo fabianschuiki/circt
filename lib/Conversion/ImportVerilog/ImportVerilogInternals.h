@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+// NOLINTNEXTLINE(llvm-header-guard)
 #ifndef CONVERSION_IMPORTVERILOG_IMPORTVERILOGINTERNALS_H
 #define CONVERSION_IMPORTVERILOG_IMPORTVERILOGINTERNALS_H
 
@@ -17,6 +18,7 @@
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/SyntaxVisitor.h"
 #include "slang/text/SourceManager.h"
+#include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/Support/Debug.h"
 #include <queue>
 
@@ -31,7 +33,8 @@ struct Context {
           std::function<StringRef(slang::BufferID)> getBufferFilePath,
           slang::ast::Compilation &compilation)
       : intoModuleOp(intoModuleOp), sourceManager(sourceManager),
-        getBufferFilePath(getBufferFilePath), compilation(compilation),
+        getBufferFilePath(std::move(getBufferFilePath)),
+        compilation(compilation),
         rootBuilder(OpBuilder::atBlockEnd(intoModuleOp.getBody())),
         symbolTable(intoModuleOp) {}
   Context(const Context &) = delete;
@@ -62,6 +65,12 @@ struct Context {
   OpBuilder rootBuilder;
   /// A symbol table of the MLIR module we are emitting into.
   SymbolTable symbolTable;
+
+  /// The symbol table maps a variable name to a value in the current scope.
+  /// Entering a function creates a new scope, and the function arguments are
+  /// added to the mapping. When the processing of a function is terminated, the
+  /// scope is destroyed and the mappings created in this scope are dropped.
+  llvm::ScopedHashTable<StringRef, mlir::Value> varSymbolTable;
 
   /// How we have lowered modules to MLIR.
   DenseMap<const slang::ast::InstanceBodySymbol *, Operation *> moduleOps;

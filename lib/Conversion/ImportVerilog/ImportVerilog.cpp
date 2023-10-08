@@ -58,7 +58,7 @@ public:
   MlirDiagnosticClient(
       MLIRContext *context,
       std::function<StringRef(slang::BufferID)> getBufferFilePath)
-      : context(context), getBufferFilePath(getBufferFilePath) {}
+      : context(context), getBufferFilePath(std::move(getBufferFilePath)) {}
 
   void report(const slang::ReportedDiagnostic &diag) override {
     // Generate the primary MLIR diagnostic.
@@ -78,11 +78,11 @@ public:
          it++) {
       auto &note = mlirDiag.attachNote(
           convertLocation(sourceManager->getFullyOriginalLoc(*it)));
-      auto macro_name = sourceManager->getMacroName(*it);
-      if (macro_name.empty())
+      auto macroName = sourceManager->getMacroName(*it);
+      if (macroName.empty())
         note << "expanded from here";
       else
-        note << "expanded from macro '" << macro_name << "'";
+        note << "expanded from macro '" << macroName << "'";
     }
   }
 
@@ -130,10 +130,9 @@ struct DenseMapInfo<slang::BufferID> {
 };
 } // namespace llvm
 
-// Parse the specified Verilog inputs into the specified MLIR context.
-mlir::OwningOpRef<mlir::ModuleOp> circt::importVerilog(SourceMgr &sourceMgr,
-                                                       MLIRContext *context,
-                                                       mlir::TimingScope &ts) {
+static mlir::OwningOpRef<mlir::ModuleOp>
+importVerilogWithExceptions(SourceMgr &sourceMgr, MLIRContext *context,
+                            mlir::TimingScope &ts) {
   // Use slang's driver which conveniently packages a lot of the things we need
   // for compilation.
   slang::driver::Driver driver;
@@ -197,6 +196,19 @@ mlir::OwningOpRef<mlir::ModuleOp> circt::importVerilog(SourceMgr &sourceMgr,
   if (failed(verify(*module)))
     return {};
   return module;
+}
+
+// Parse the specified Verilog inputs into the specified MLIR context.
+mlir::OwningOpRef<mlir::ModuleOp> circt::importVerilog(SourceMgr &sourceMgr,
+                                                       MLIRContext *context,
+                                                       mlir::TimingScope &ts) {
+  try {
+    return importVerilogWithExceptions(sourceMgr, context, ts);
+  } catch (const std::exception &e) {
+    mlir::emitError(UnknownLoc::get(context), "internal slang error: ")
+        << e.what();
+    return {};
+  }
 }
 
 void circt::registerFromVerilogTranslation() {

@@ -49,14 +49,11 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
 # Options and settings
 #-------------------------------------------------------------------------------
 
-  option(LLVM_INCLUDE_TOOLS "Generate build targets for the LLVM tools." ON)
-  option(LLVM_BUILD_TOOLS "Build the LLVM tools. If OFF, just generate build targets." ON)
-
-if (MSVC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHs-c- /GR-")
-else ()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti")
-endif ()
+  if (MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHs-c- /GR-")
+  else ()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti")
+  endif ()
 
 #-------------------------------------------------------------------------------
 # MLIR/LLVM Configuration
@@ -84,12 +81,16 @@ endif ()
   # Handle unittests when building out-of-tree against an installed version of
   # LLVM/MLIR (not a build tree). Adapted from `llvm/flang/CMakeLists.txt`.
   set(CIRCT_GTEST_AVAILABLE 0)
-  set(UNITTEST_DIR ${LLVM_THIRD_PARTY_DIR}/unittest)
-  if (NOT EXISTS ${UNITTEST_DIR}/googletest/include/gtest/gtest.h)
-    set(UNITTEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/llvm/third-party/unittest)
-  endif()
-  if (EXISTS ${UNITTEST_DIR}/googletest/include/gtest/gtest.h)
-    if (NOT TARGET llvm_gtest)
+  if (TARGET llvm_gtest)
+    # Installed gtest, via LLVM_INSTALL_GTEST.  Preferred.
+    message(STATUS "LLVM GTest found, enabling unittests")
+    set(CIRCT_GTEST_AVAILABLE 1)
+  else()
+    set(UNITTEST_DIR ${LLVM_THIRD_PARTY_DIR}/unittest)
+    if (NOT EXISTS ${UNITTEST_DIR}/googletest/include/gtest/gtest.h)
+      set(UNITTEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/llvm/third-party/unittest)
+    endif()
+    if (EXISTS ${UNITTEST_DIR}/googletest/include/gtest/gtest.h)
       find_package(Threads)
       add_llvm_library(llvm_gtest
         ${UNITTEST_DIR}/googletest/src/gtest-all.cc
@@ -112,12 +113,12 @@ endif ()
         LINK_COMPONENTS Support # llvm::cl
         BUILDTREE_ONLY
       )
+      set(CIRCT_GTEST_AVAILABLE 1)
+    else()
+      message(WARNING "Skipping unittests since LLVM install does not include \
+        gtest headers and libraries")
+      set(CIRCT_GTEST_AVAILABLE 0)
     endif()
-    set(CIRCT_GTEST_AVAILABLE 1)
-  else()
-    message(WARNING "Skipping unittests since LLVM install does not include \
-      gtest headers and libraries")
-    set(CIRCT_GTEST_AVAILABLE 0)
   endif()
 
 else()
@@ -168,6 +169,12 @@ set(CIRCT_LIBRARY_DIR ${CMAKE_BINARY_DIR}/lib)
 set(CIRCT_TOOLS_DIR ${CMAKE_BINARY_DIR}/bin)
 set(CIRCT_UTILS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/utils)
 set(CIRCT_PYTHON_PACKAGES_DIR ${CIRCT_BINARY_DIR}/python_packages)
+
+
+option(CIRCT_INCLUDE_TOOLS "Generate build targets for the CIRCT tools." ON)
+option(CIRCT_BUILD_TOOLS "Build the CIRCT tools. If OFF, just generate build targets." ON)
+set(CIRCT_TOOLS_INSTALL_DIR "${CMAKE_INSTALL_BINDIR}" CACHE PATH
+    "Path for binary subdirectory (defaults to '${CMAKE_INSTALL_BINDIR}')")
 
 list(APPEND CMAKE_MODULE_PATH "${MLIR_MAIN_SRC_DIR}/cmake/modules")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
@@ -473,6 +480,41 @@ endif()
 llvm_canonicalize_cmake_booleans(CIRCT_LLHD_SIM_ENABLED)
 
 #-------------------------------------------------------------------------------
+# circt-lec Configuration
+#-------------------------------------------------------------------------------
+
+# If circt-lec hasn't been explicitly disabled, find it.
+option(CIRCT_LEC_DISABLE "Disable the Logical Equivalence Checker" OFF)
+if(CIRCT_LEC_DISABLE)
+  message(STATUS "Disabling circt-lec")
+else()
+  if(Z3_DIR)
+    # Search and load the package configuration file in the specified directory.
+    find_package(Z3 CONFIG REQUIRED PATHS ${Z3_DIR} NO_DEFAULT_PATH)
+    if(Z3_FOUND)
+      # Report the found library location and version
+      # similarly to LLVM's `FindZ3` CMake module.
+      get_target_property(Z3_LIB_LOCATION z3::libz3 IMPORTED_LOCATION_DEBUG)
+      message(STATUS "Found Z3: ${Z3_LIB_LOCATION} (found version \"${Z3_VERSION_STRING}\")")
+    endif()
+  else()
+    # Attempt initialising Z3 according to LLVM's `FindZ3` CMake module.
+    find_package(Z3)
+  endif()
+  
+  if(Z3_FOUND)
+    SET(CIRCT_LEC_Z3_VER 4.8.11)
+    if(Z3_VERSION_STRING VERSION_LESS ${CIRCT_LEC_Z3_VER})
+      message(WARNING "Cannot build circt-lec with outdated Z3 version ${Z3_VERSION_STRING}, requires ${CIRCT_LEC_Z3_VER}.")
+    else()
+      message(STATUS "Z3 identified as a logical backend.")
+      # Signal to proceed building circt-lec.
+      set(CIRCT_LEC_ENABLED ON)
+    endif()
+  endif()
+endif()
+
+#-------------------------------------------------------------------------------
 # Python Configuration
 #-------------------------------------------------------------------------------
 
@@ -521,26 +563,43 @@ if(CIRCT_SLANG_FRONTEND_ENABLED)
   if(CIRCT_SLANG_BUILD_FROM_SOURCE)
     # Build slang as part of CIRCT (see https://sv-lang.com/building.html)
     message(STATUS "Building slang from source")
-    set(original_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    set(CMAKE_CXX_FLAGS "")
     include(FetchContent)
     FetchContent_Declare(
       slang
       GIT_REPOSITORY https://github.com/MikePopoloski/slang.git
-      GIT_TAG v2.0
+      GIT_TAG v3.0
       GIT_SHALLOW ON)
+    set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE "NEVER")
+
+    # Force Slang to be built as a static library to avoid messing around with
+    # RPATHs and installing a slang dylib alongside CIRCT. The static library
+    # will embed Slang into ImportVerilog.
+    set(original_CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+    set(original_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+
+    set(CMAKE_CXX_FLAGS "")
+    set(BUILD_SHARED_LIBS OFF)
     FetchContent_MakeAvailable(slang)
+
+    set(CMAKE_CXX_FLAGS ${original_CMAKE_CXX_FLAGS})
+    set(BUILD_SHARED_LIBS ${original_BUILD_SHARED_LIBS})
+
+    if(BUILD_SHARED_LIBS)
+      set_target_properties(slang_slang PROPERTIES POSITION_INDEPENDENT_CODE ON)
+      set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
+      set_target_properties(unordered_dense PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+
     # The following feels *very* hacky, but CMake complains about the
     # CIRCTImportVerilog target linking against slang_slang (even with PRIVATE
     # linking) without the latter being in an export set. I think we'd want to
     # statically link slang into the CIRCTImportVerilog library, but seems to be
     # harder than it ought to be.
-    set_property(GLOBAL APPEND PROPERTY CIRCT_EXPORTS slang_slang
-                                                      unordered_dense)
-    install(TARGETS slang_slang unordered_dense EXPORT CIRCTTargets)
-    set(CMAKE_CXX_FLAGS ${original_CXX_FLAGS})
+    set_property(
+      GLOBAL APPEND PROPERTY CIRCT_EXPORTS slang_slang unordered_dense fmt)
+    install(TARGETS slang_slang unordered_dense fmt EXPORT CIRCTTargets)
   else()
-    find_package(slang 2.0 REQUIRED)
+    find_package(slang 3.0 REQUIRED)
   endif()
 endif()
 
@@ -550,7 +609,9 @@ endif()
 
 add_subdirectory(include/circt)
 add_subdirectory(lib)
-add_subdirectory(tools)
+if(CIRCT_INCLUDE_TOOLS)
+  add_subdirectory(tools)
+endif()
 if (CIRCT_GTEST_AVAILABLE)
   add_subdirectory(unittests)
 endif()
