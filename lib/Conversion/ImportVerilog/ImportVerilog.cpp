@@ -17,33 +17,21 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Support/Timing.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
-<<<<<<< HEAD
-#include "slang/diagnostics/DiagnosticClient.h"
-#include "slang/driver/Driver.h"
-#include "llvm/ADT/Hashing.h"
-#include "llvm/Support/SourceMgr.h"
-
-    =======
-#include "llvm/ADT/Hashing.h"
-#include "llvm/Support/SourceMgr.h"
-
 #include "slang/diagnostics/DiagnosticClient.h"
 #include "slang/driver/Driver.h"
 #include "slang/parsing/Preprocessor.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/util/Version.h"
+#include "llvm/ADT/Hashing.h"
+#include "llvm/Support/SourceMgr.h"
 
-    using namespace mlir;
+using namespace mlir;
 >>>>>>> slang-frontend/slang-frontend
 using namespace circt;
 using namespace ImportVerilog;
 
 using llvm::SourceMgr;
 
-<<<<<<< HEAD
-//===----------------------------------------------------------------------===//
-// Driver
-=======
 std::string circt::getSlangVersion() {
   std::string buffer;
   llvm::raw_string_ostream os(buffer);
@@ -57,7 +45,6 @@ std::string circt::getSlangVersion() {
 
 //===----------------------------------------------------------------------===//
 // Diagnostics
->>>>>>> slang-frontend/slang-frontend
 //===----------------------------------------------------------------------===//
 
 /// Convert a slang `SourceLocation` to an MLIR `Location`.
@@ -121,22 +108,6 @@ public:
                                           getBufferFilePath, loc);
   }
 
-<<<<<<< HEAD
-  static mlir::DiagnosticSeverity
-  getSeverity(slang::DiagnosticSeverity severity) {
-    switch (severity) {
-    case slang::DiagnosticSeverity::Fatal:
-    case slang::DiagnosticSeverity::Error:
-      return mlir::DiagnosticSeverity::Error;
-    case slang::DiagnosticSeverity::Warning:
-      return mlir::DiagnosticSeverity::Warning;
-    case slang::DiagnosticSeverity::Ignored:
-    case slang::DiagnosticSeverity::Note:
-      return mlir::DiagnosticSeverity::Remark;
-    }
-    llvm_unreachable("all slang diagnostic severities should be handled");
-    return mlir::DiagnosticSeverity::Error;
-=======
   static DiagnosticSeverity getSeverity(slang::DiagnosticSeverity severity) {
     switch (severity) {
     case slang::DiagnosticSeverity::Fatal:
@@ -150,7 +121,6 @@ public:
     }
     llvm_unreachable("all slang diagnostic severities should be handled");
     return DiagnosticSeverity::Error;
->>>>>>> slang-frontend/slang-frontend
   }
 
 private:
