@@ -24,6 +24,11 @@ def HWCleanup : Pass<"hw-cleanup", "hw::HWModuleOp"> {
       opportunities for other simpler passes (like canonicalize).
   }];
 
+  let options = [
+    Option<"mergeAlwaysBlocks", "merge-always-blocks", "bool",
+           "true", "Allow always and always_ff blocks to be merged">
+  ];
+
   let constructor = "circt::sv::createHWCleanupPass()";
 }
 
@@ -100,7 +105,7 @@ def HWMemSimImpl : Pass<"hw-memory-sim", "ModuleOp"> {
             "Disable emission of register randomization code">,
     Option<"replSeqMem", "repl-seq-mem", "bool",
                 "false", "Prepare seq mems for macro replacement">,
-    Option<"ignoreReadEnableMem", "ignore-read-enable-mem", "bool",
+    Option<"ignoreReadEnable", "ignore-read-enable", "bool",
                 "false",
     "ignore the read enable signal, instead of assigning X on read disable">,
     Option<"addMuxPragmas", "add-mux-pragmas", "bool", "false",
@@ -125,6 +130,8 @@ def SVExtractTestCode : Pass<"sv-extract-test-code", "ModuleOp"> {
   let options = [
     Option<"disableInstanceExtraction", "disable-instance-extraction", "bool",
            "false", "Disable extracting instances only that feed test code">,
+    Option<"disableRegisterExtraction", "disable-register-extraction", "bool",
+           "false", "Disable extracting registers only that feed test code">,
     Option<"disableModuleInlining", "disable-module-inlining", "bool",
            "false", "Disable inlining modules that only feed test code">
   ];
@@ -164,11 +171,25 @@ def HWExportModuleHierarchy : Pass<"hw-export-module-hierarchy",
 
   let constructor = "circt::sv::createHWExportModuleHierarchyPass()";
   let dependentDialects = ["circt::sv::SVDialect"];
+}
 
+def HWEliminateInOutPorts : Pass<"hw-eliminate-inout-ports",
+                             "mlir::ModuleOp"> {
+  let summary = "Raises usages of inout ports into explicit input and output ports";
+  let description = [{
+    This pass raises usages of inout ports into explicit in- and output ports.
+    This is done by analyzing the usage of the inout ports and creating new
+    input and output ports at the using module, and subsequently moving the
+    inout read- and writes to the instantiation site.
+  }];
+  let constructor = "circt::sv::createHWEliminateInOutPortsPass()";
+  let dependentDialects = ["circt::sv::SVDialect"];
   let options = [
-    Option<"directoryName", "dir-name", "std::string", "\"./\"",
-            "Directory to emit into">
-   ];
+    Option<"readSuffix", "read-suffix", "std::string", "\"_rd\"",
+           "Suffix to be used for the port when the inout port has readers">,
+    Option<"writeSuffix", "write-suffix", "std::string", "\"_wr\"",
+            "Suffix to be used for the port when the inout port has writers">
+  ];
 }
 
 #endif // CIRCT_DIALECT_SV_SVPASSES

@@ -6,6 +6,8 @@
 ##===----------------------------------------------------------------------===//
 
 set(srcs
+  AppID.cpp
+  ESIAttributes.cpp
   ESIDialect.cpp
   ESIFolds.cpp
   ESIOps.cpp
@@ -16,9 +18,18 @@ set(srcs
   ESITypes.cpp
   Passes/ESIEmitCollateral.cpp
   Passes/ESILowerPhysical.cpp
+  Passes/ESILowerBundles.cpp
   Passes/ESILowerPorts.cpp
   Passes/ESILowerToHW.cpp
   Passes/ESILowerTypes.cpp
+  Passes/ESICleanMetadata.cpp
+
+  APIUtilities.cpp
+
+  # C++ API
+  Passes/CPPAPI/ESIAddCPPAPI.cpp
+  Passes/CPPAPI/ESIEmitCPPAPI.cpp
+  Passes/CPPAPI/CPPAPI.cpp
 )
 
 set(ESI_LinkLibs
@@ -42,23 +53,10 @@ set(ESI_Deps
   MLIRESIInterfacesIncGen
 )
 
-set(CP_FILES
-  ESIPrimitives.sv
-)
-
 if(CapnProto_FOUND)
   option(ESI_CAPNP "Enable ESI Capnp features" ON)
-endif()
-
-if (ESI_CAPNP)
   list(APPEND srcs capnp/Schema.cpp)
   list(APPEND ESI_LinkLibs CapnProto::capnp CapnProto::capnpc)
-  list(APPEND CP_FILES ${CIRCT_MAIN_INCLUDE_DIR}/circt/Dialect/ESI/cosim/CosimDpi.capnp)
-  list(APPEND CP_FILES cosim/Cosim_DpiPkg.sv)
-  list(APPEND CP_FILES cosim/Cosim_Endpoint.sv)
-  install(FILES ${CapnProto_capnp_IMPORTED_LOCATION} DESTINATION lib)
-  install(FILES ${CapnProto_capnpc_IMPORTED_LOCATION} DESTINATION lib)
-  install(FILES ${CapnProto_kj_IMPORTED_LOCATION} DESTINATION lib)
 endif()
 
 add_circt_dialect_library(CIRCTESI
@@ -77,23 +75,65 @@ add_circt_dialect_library(CIRCTESI
   ${ESI_LinkLibs}
   )
 
-foreach(CP_FILE ${CP_FILES})
-  get_filename_component(DST ${CP_FILE} NAME)
-  get_filename_component(SRC ${CP_FILE} REALPATH)
-  list(APPEND ABS_CFILES ${SRC})
-  add_custom_command(TARGET CIRCTESI PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E
-    copy ${SRC} ${CIRCT_BINARY_DIR}/include/circt/Dialect/ESI/${DST})
-endforeach()
-
 # Create a package of ESI collateral for any compiler to include with its
 # distribution.
-add_library(esi-collateral INTERFACE)
-set_target_properties(esi-collateral PROPERTIES PUBLIC_HEADER "${ABS_CFILES}")
+add_custom_target(esi-collateral)
+
+set(ESI_RUNTIME_SRCS
+  cosim/Cosim_DpiPkg.sv
+  cosim/Cosim_Endpoint.sv
+  cosim/Cosim_MMIO.sv
+  ESIPrimitives.sv
+
+  runtime/CMakeLists.txt
+  runtime/cpp/include/esi/Accelerator.h
+  runtime/cpp/include/esi/StdServices.h
+  runtime/cpp/include/esi/backends/Cosim.h
+  runtime/cpp/include/esi/backends/capnp.h
+  runtime/cpp/include/esi/esi.h
+  runtime/cpp/lib/Accelerator.cpp
+  runtime/cpp/lib/StdServices.cpp
+  runtime/cpp/lib/backends/Cosim.cpp
+  runtime/cpp/tools/esiquery.cpp
+  runtime/python/esi/esiaccel.cpp
+)
+
+# A function which copies a file from the source tree to the build tree.
+# This is an alternative to configure_file to ensure that the file is copied
+# on every build (not just during CMake configure).
+function(copy_esi_runtime FILENAME)
+  get_filename_component(SRC ${FILENAME} REALPATH)
+  add_custom_command(TARGET esi-collateral PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E
+    copy ${SRC} "${CMAKE_CURRENT_BINARY_DIR}/${FILENAME}")
+  target_sources(esi-collateral PRIVATE "${FILENAME}")
+endfunction()
+
+foreach(SRC ${ESI_RUNTIME_SRCS})
+  copy_esi_runtime(${SRC})
+endforeach()
 
 if (ESI_CAPNP)
+  add_dependencies(esi-collateral EsiCosimCapnp)
+  get_target_property(EsiCosimCapnp_bindir EsiCosimCapnp SOURCE_DIR)
+  set(ESI_COSIM_SCHEMA "${EsiCosimCapnp_bindir}/CosimDpi.capnp")
+  set(CAPNPC_SRC_PREFIX "${EsiCosimCapnp_bindir}")
+  add_custom_command(TARGET esi-collateral PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E
+    copy "${ESI_COSIM_SCHEMA}"
+         "${CMAKE_CURRENT_BINARY_DIR}/runtime/CosimDpi.capnp")
+
   target_compile_definitions(obj.CIRCTESI PRIVATE CAPNP)
   target_link_libraries(obj.CIRCTESI CapnProto::capnp CapnProto::capnpc)
 endif()
 
 add_subdirectory(cosim)
+
+# We include this directory as collateral, but we also need to have a compiled
+# version for testing.
+option(ESI_RUNTIME "Build and test the ESI runtime")
+llvm_canonicalize_cmake_booleans(ESI_RUNTIME)
+if (ESI_RUNTIME)
+  message(STATUS "Enabling ESI runtime build and testing")
+  add_subdirectory(runtime)
+endif()

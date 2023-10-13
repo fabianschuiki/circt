@@ -28,10 +28,10 @@ def PortAnnotationsAttr : ArrayAttrBase<
       // Guarantee this is an ArrayAttr first
       CPred<"$_self.isa<::mlir::ArrayAttr>()">,
       // Guarantee all elements are an array or a dictionary.
-      CPred<"::llvm::all_of($_self.cast<::mlir::ArrayAttr>(), "
-            "[&](::mlir::Attribute attr) { return attr.isa<"
+      CPred<"::llvm::all_of(cast<mlir::ArrayAttr>($_self), "
+            "[&](::mlir::Attribute attr) { return isa<"
             "::mlir::ArrayAttr,"
-            "::mlir::DictionaryAttr>();})">]>,
+            "::mlir::DictionaryAttr>(attr);})">]>,
     "Port annotations attribute"> {
   let constBuilderCall = "$_builder.getArrayAttr($0)";
 }
@@ -188,5 +188,27 @@ def MemoryInitAttr : AttrDef<FIRRTLDialect, "MemoryInit"> {
   );
  let assemblyFormat = "`<` $filename `,` $isBinary `,` $isInline `>`";
 }
+
+/// An attribute holding internal path for ref-type ports.
+def InternalPathAttr : AttrDef<FIRRTLDialect, "InternalPath"> {
+  let summary = "Internal path for ref-type ports";
+  let mnemonic = "internalpath";
+  let parameters = (ins OptionalParameter<"::mlir::StringAttr">:$path);
+  let assemblyFormat = "(`<` $path^ `>`)?";
+  let builders = [
+     AttrBuilderWithInferredContext<(ins "::mlir::StringAttr":$path), [{
+       return $_get(path.getContext(), path);
+     }]>,
+     AttrBuilder<(ins "::llvm::StringRef":$path), [{
+       return $_get($_ctxt, ::mlir::StringAttr::get($_ctxt, path));
+     }]>,
+     AttrBuilder<(ins), [{
+       return $_get($_ctxt, ::mlir::StringAttr());
+     }]>
+  ];
+}
+
+def InternalPathArrayAttr
+  : TypedArrayAttrBase<InternalPathAttr, "InternalPath array attribute">;
 
 #endif // CIRCT_DIALECT_FIRRTL_FIRRTLATTRIBUTES_TD

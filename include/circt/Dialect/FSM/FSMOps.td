@@ -12,14 +12,15 @@
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
-include "circt/Dialect/HW/HWOpInterfaces.td"
+include "circt/Dialect/Seq/SeqTypes.td"
+include "circt/Support/InstanceGraphInterface.td"
 
 def HasCustomSSAName : DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>;
 
 def MachineOp : FSMOp<"machine", [
       FunctionOpInterface,
       Symbol, SymbolTable, NoTerminator,
-      DeclareOpInterfaceMethods<HWModuleLike>]> {
+      DeclareOpInterfaceMethods<InstanceGraphModuleOpInterface>]> {
   let summary = "Define a finite-state machine";
   let description = [{
     `fsm.machine` represents a finite-state machine, including a machine name,
@@ -61,6 +62,13 @@ def MachineOp : FSMOp<"machine", [
     /// Returns the result types of this function.
     ArrayRef<Type> getResultTypes() { return getFunctionType().getResults(); }
 
+    /// Returns the region on the current operation that is callable. This may
+    /// return null in the case of an external callable object, e.g. an external
+    /// function.
+    ::mlir::Region *getCallableRegion() {
+      return &getBody();
+    }
+
     /// Verify the type attribute of this function. Returns failure and emits
     /// an error if the attribute is invalid.
     LogicalResult verifyType() {
@@ -76,21 +84,11 @@ def MachineOp : FSMOp<"machine", [
 
     /// Return the name of the i'th result of this machine.
     StringAttr getResName(size_t i);
-  }];
 
-  let extraClassDefinition = [{
-    size_t $cppClass::getNumPorts() {
-      auto machineType = getFunctionType();
-      return machineType.getNumInputs() + machineType.getNumResults();
-    }
-
-    circt::hw::InnerSymAttr $cppClass::getPortSymbolAttr(size_t portIndex) {
-      for (NamedAttribute argAttr :
-           mlir::function_interface_impl::getArgAttrs(*this, portIndex))
-        if (auto sym = argAttr.getValue().dyn_cast<circt::hw::InnerSymAttr>())
-          return sym;
-      return circt::hw::InnerSymAttr();
-    }
+    //===------------------------------------------------------------------===//
+    // PortList Methods
+    //===------------------------------------------------------------------===//
+    SmallVector<::circt::hw::PortInfo> getPortList();
   }];
 
   let skipDefaultBuilders = 1;
@@ -113,6 +111,11 @@ def InstanceOp : FSMOp<"instance", [Symbol, HasCustomSSAName]> {
   let extraClassDeclaration = [{
     /// Lookup the machine for the symbol. This returns null on invalid IR.
     MachineOp getMachineOp();
+
+    //===------------------------------------------------------------------===//
+    // PortList Methods
+    //===------------------------------------------------------------------===//
+    SmallVector<::circt::hw::PortInfo> getPortList();
   }];
 
   let hasVerifier = 1;
@@ -143,7 +146,7 @@ def TriggerOp : FSMOp<"trigger", []> {
 
 def HWInstanceOp : FSMOp<"hw_instance", [
     Symbol,
-    DeclareOpInterfaceMethods<HWInstanceLike>
+    DeclareOpInterfaceMethods<InstanceGraphInstanceOpInterface>
   ]> {
   let summary = "Create a hardware-style instance of a state machine";
   let description = [{
@@ -154,7 +157,7 @@ def HWInstanceOp : FSMOp<"hw_instance", [
   }];
 
   let arguments = (ins StrAttr:$sym_name, FlatSymbolRefAttr:$machine,
-                       Variadic<AnyType>:$inputs, I1:$clock, I1:$reset);
+                       Variadic<AnyType>:$inputs, ClockType:$clock, I1:$reset);
   let results = (outs Variadic<AnyType>:$outputs);
 
   let assemblyFormat = [{
@@ -167,12 +170,14 @@ def HWInstanceOp : FSMOp<"hw_instance", [
     MachineOp getMachineOp();
 
     /// Module name is the same as the machine name.
-    StringRef getModuleName() {
-      return getMachine();
-    }
-    FlatSymbolRefAttr getModuleNameAttr() {
-      return getMachineAttr();
-    }
+    StringRef getModuleName();
+
+    FlatSymbolRefAttr getModuleNameAttr();
+
+    //===------------------------------------------------------------------===//
+    // PortList Methods
+    //===------------------------------------------------------------------===//
+    SmallVector<::circt::hw::PortInfo> getPortList();
   }];
 
   let hasVerifier = 1;

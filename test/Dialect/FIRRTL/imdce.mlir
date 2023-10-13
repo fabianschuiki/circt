@@ -1,4 +1,4 @@
-// RUN: circt-opt -pass-pipeline='builtin.module(firrtl.circuit(firrtl-imdeadcodeelim))' --split-input-file -verify-diagnostics %s | FileCheck %s
+// RUN: circt-opt -pass-pipeline='builtin.module(firrtl-imdeadcodeelim)' --split-input-file -verify-diagnostics %s | FileCheck %s
 firrtl.circuit "top" {
   // In `dead_module`, %source is connected to %dest through several dead operations such as
   // node, wire, reg or rgereset. %dest is also dead at any instantiation, so check that
@@ -93,7 +93,6 @@ firrtl.circuit "top"  {
 
   // CHECK-LABEL: firrtl.module @top(in %clock: !firrtl.clock, in %input: !firrtl.uint<1>) {
   // CHECK-NEXT:  }
-  // expected-warning @+1 {{module `top` is empty but cannot be removed because the module is public}}
   firrtl.module @top(in %clock: !firrtl.clock, in %input: !firrtl.uint<1>) {
     %tile_input, %tile_output = firrtl.instance tile  @Child1(in input: !firrtl.uint<1>, out output: !firrtl.uint<1>)
     firrtl.strictconnect %tile_input, %input : !firrtl.uint<1>
@@ -156,14 +155,11 @@ firrtl.circuit "DeleteEmptyModule" {
   // CHECK: firrtl.module private @empty
   // expected-warning @+1{{module `empty` is empty but cannot be removed because the module has annotations [{class = "foo"}]}}
   firrtl.module private @empty() attributes {annotations = [{class = "foo"}]}  {}
-  // Don't delete @Sub because instance `sub1` has a symbol.
-  // CHECK: firrtl.module private @Sub
-  // expected-warning @+1{{module  `Sub` is empty but cannot be removed because an instance is referenced by name}}
+  // CHECK-NOT: firrtl.module private @Sub
   firrtl.module private @Sub(in %a: !firrtl.uint<1>)  {}
   // CHECK: firrtl.module @DeleteEmptyModule
   firrtl.module @DeleteEmptyModule() {
-    // CHECK-NEXT: firrtl.instance sub1 sym @Foo @Sub()
-    // expected-note @+1{{these are instances with symbols}}
+    // CHECK-NOT: firrtl.instance sub1
     firrtl.instance sub1 sym @Foo @Sub(in a: !firrtl.uint<1>)
     // CHECK-NOT: sub2
     firrtl.instance sub2 @Sub(in a: !firrtl.uint<1>)
@@ -254,7 +250,6 @@ firrtl.circuit "RefPorts" {
 
 firrtl.circuit "MemoryInDeadCycle" {
   // CHECK-LABEL: firrtl.module public @MemoryInDeadCycle
-  // expected-warning @+1{{module `MemoryInDeadCycle` is empty but cannot be removed because the module is public}}
   firrtl.module public @MemoryInDeadCycle(in %clock: !firrtl.clock, in %addr: !firrtl.uint<4>) {
 
     // CHECK-NOT: firrtl.mem
@@ -355,5 +350,268 @@ firrtl.circuit "DeleteInstance" {
     firrtl.strictconnect %p1_a, %a : !firrtl.uint<1>
     firrtl.strictconnect %p2_a, %a : !firrtl.uint<1>
     firrtl.strictconnect %b, %p2_b : !firrtl.uint<1>
+  }
+}
+
+// -----
+firrtl.circuit "Top" {
+  // CHECK-NOT: @nla_1
+  // CHECK: @nla_2
+  hw.hierpath private @nla_1 [@Foo1::@dead, @EncodingModule]
+  hw.hierpath private @nla_2 [@Foo2::@live, @EncodingModule]
+  // CHECK-LABEL: private @EncodingModule
+  // CHECK-NOT: @nla_1
+  // CHECK-SAME: @nla_2
+  firrtl.module private @EncodingModule(in %in: !firrtl.uint<1>, out %a: !firrtl.uint<1> [{circt.nonlocal = @nla_1, class = "freechips.rocketchip.objectmodel.OMIRTracker", id = 0 : i64, type = "OMReferenceTarget"}, {circt.nonlocal = @nla_2, class = "freechips.rocketchip.objectmodel.OMIRTracker", id = 1 : i64, type = "OMReferenceTarget"}]) {
+    firrtl.strictconnect %a, %in : !firrtl.uint<1>
+  }
+  // CHECK-NOT: @Foo1
+  firrtl.module private @Foo1(in %in: !firrtl.uint<1>) {
+    %c_in, %c_a = firrtl.instance c sym @dead @EncodingModule(in in: !firrtl.uint<1>, out a: !firrtl.uint<1>)
+    firrtl.strictconnect %c_in, %in : !firrtl.uint<1>
+  }
+  // CHECK-LABEL: @Foo2
+  firrtl.module private @Foo2(in %in: !firrtl.uint<1>, out %a: !firrtl.uint<1>) {
+    %c_in, %c_a = firrtl.instance c sym @live @EncodingModule(in in: !firrtl.uint<1>, out a: !firrtl.uint<1>)
+    firrtl.strictconnect %a, %c_a : !firrtl.uint<1>
+    firrtl.strictconnect %c_in, %in : !firrtl.uint<1>
+  }
+  // CHECK-LABEL: @Top
+  // CHECK-NOT: @Foo1
+  // CHECK-NOT: firrtl.strictconnect %foo1_in, %in
+  // CHECK: @Foo2
+  firrtl.module @Top(in %in: !firrtl.uint<1>, out %a: !firrtl.uint<1>) {
+    %foo1_in = firrtl.instance foo1 @Foo1(in in: !firrtl.uint<1>)
+    firrtl.strictconnect %foo1_in, %in : !firrtl.uint<1>
+    %foo2_in, %foo2_a = firrtl.instance foo2 @Foo2(in in: !firrtl.uint<1>, out a: !firrtl.uint<1>)
+    firrtl.strictconnect %a, %foo2_a : !firrtl.uint<1>
+    firrtl.strictconnect %foo2_in, %in : !firrtl.uint<1>
+
+  }
+}
+
+// -----
+
+firrtl.circuit "Top" {
+  // CHECK: hw.hierpath private @nla_1
+  hw.hierpath private @nla_1 [@Top::@foo1, @Bar::@w]
+  // CHECK-NEXT: hw.hierpath private @nla_2
+  hw.hierpath private @nla_2 [@Top::@foo1, @Bar]
+  // CHECK-NEXT: sv.verbatim "foo" {some = [@nla_2]}
+  sv.verbatim "foo" {some = [@nla_2]}
+  // CHECK-LABEL: firrtl.module private @Bar
+  // CHECK: %in1{{.*}}sym @w
+  // CHECK-SAME: %in2
+  // CHECK-NOT: %in3
+  // expected-warning @+1 {{module `Bar` is empty but cannot be removed because the module has ports "in1", "in2" are referenced by name or dontTouched}}
+  firrtl.module private @Bar(in %in1 : !firrtl.uint<1> sym @w, in %in2: !firrtl.uint<1> [{class = "foo"}], in %in3: !firrtl.uint<1>) {}
+  // CHECK-LABEL: firrtl.module private @Baz
+  // expected-warning @+1 {{module `Baz` is empty but cannot be removed because an instance is referenced by nam}}
+  firrtl.module private @Baz() {}
+
+  // CHECK-LABEL: firrtl.module @Top
+  firrtl.module @Top(in %in: !firrtl.uint<1>) {
+    %c_in1, %c_in2, %c_in3 = firrtl.instance c sym @foo1 @Bar(in in1: !firrtl.uint<1>, in in2: !firrtl.uint<1>, in in3: !firrtl.uint<1>)
+    firrtl.strictconnect %c_in1, %in : !firrtl.uint<1>
+    firrtl.strictconnect %c_in2, %in : !firrtl.uint<1>
+    firrtl.strictconnect %c_in3, %in : !firrtl.uint<1>
+    // CHECK: sv.verbatim "foo" {some = #hw.innerNameRef<@Top::@baz1>}
+    sv.verbatim "foo" {some = #hw.innerNameRef<@Top::@baz1>}
+    // Don't remove the instance if there is an unknown use of inner reference.
+    // CHECK: baz1
+    // expected-note @+1 {{these are instances with symbols}}
+    firrtl.instance baz1 sym @baz1 @Baz()
+    // Remove a dead instance otherwise.
+    // CHECK-NOT: baz2
+    firrtl.instance baz2 sym @baz2 @Baz()
+  }
+}
+
+// -----
+
+// This tests that dead modules do not keep dead instance output ports alive.
+
+firrtl.circuit "Test" {
+  firrtl.extmodule @ExtModule(out out : !firrtl.uint<1>)
+
+  // %out is only used by a dead module. It should be removed from the port list.
+  // CHECK: firrtl.module private @Blah() {
+  firrtl.module private @Blah(out %out : !firrtl.uint<1>) {
+    %extmodule_out = firrtl.instance extmodule @ExtModule(out out : !firrtl.uint<1>)
+    firrtl.strictconnect %out, %extmodule_out : !firrtl.uint<1>
+  }
+  firrtl.module @Test() attributes {convention = #firrtl<convention scalarized>} {
+    // CHECK: firrtl.instance blah interesting_name @Blah()
+    %blah_out = firrtl.instance blah interesting_name @Blah(out out : !firrtl.uint<1>)
+  }
+  // This module is dead (unreachable from the toplevel) so the module should be removed.
+  // CHECK-NOT: firrtl.module private @Other
+  firrtl.module private @Other(out %out : !firrtl.uint<1>) {
+    %blah_out = firrtl.instance blah interesting_name @Blah(out out : !firrtl.uint<1>)
+    firrtl.strictconnect %out, %blah_out : !firrtl.uint<1>
+  }
+}
+
+// -----
+// Test that empty classes and objects are kept alive.
+
+firrtl.circuit "Test" {
+  // CHECK: firrtl.class private @Empty()
+  firrtl.class private @Empty() {}
+
+  // CHECK: firrtl.class private @UnusedAndEmpty()
+  firrtl.class private @UnusedAndEmpty() {}
+
+  // CHECK: firrtl.module @Test()
+  firrtl.module @Test() {
+    // CHECK: %obj = firrtl.object @Empty()
+    %obj = firrtl.object @Empty()
+  }
+}
+
+// -----
+// Test that instances of classes are kept alive.
+
+firrtl.circuit "Test" {
+  // Both the input and the output of this class are ignored, but preserved by
+  // IMDCE.
+  // CHECK: firrtl.class private @Class(in %in: !firrtl.integer, out %out: !firrtl.integer)
+  firrtl.class private @Class(in %in: !firrtl.integer, out %out: !firrtl.integer) {
+    // CHECK:   %0 = firrtl.integer 123
+    // CHECK:   firrtl.propassign %out, %0 : !firrtl.integer
+    %0 = firrtl.integer 123
+    firrtl.propassign %out, %0 : !firrtl.integer
+  }
+
+  // The write to %o's "in" port is preserved by IMDCE, even though the input
+  // is unused by the class.
+  // CHECK: firrtl.module @Test() attributes {convention = #firrtl<convention scalarized>}
+  firrtl.module @Test() attributes {convention = #firrtl<convention scalarized>} {
+    // CHECK: %0 = firrtl.integer 456
+    // CHECK: %o = firrtl.object @Class(in in: !firrtl.integer, out out: !firrtl.integer)
+    // CHECK: %1 = firrtl.object.subfield %o[in] : !firrtl.class<@Class(in in: !firrtl.integer, out out: !firrtl.integer)>
+    // CHECK: firrtl.propassign %1, %0 : !firrtl.integer
+    %0 = firrtl.integer 456
+    %o = firrtl.object @Class(in in: !firrtl.integer, out out: !firrtl.integer)
+    %1 = firrtl.object.subfield %o[in] : !firrtl.class<@Class(in in: !firrtl.integer, out out: !firrtl.integer)>
+    firrtl.propassign %1, %0 : !firrtl.integer
+  }
+}
+
+// -----
+// Test that instances of extclasses are kept alive.
+
+module {
+  firrtl.circuit "Test" {
+    // CHECK: firrtl.extclass private @Class(out out_str: !firrtl.string, in in_str: !firrtl.string)
+    firrtl.extclass private @Class(out out_str: !firrtl.string, in in_str: !firrtl.string)
+
+    // CHECK: firrtl.module @Test(out %out_str: !firrtl.string) attributes {convention = #firrtl<convention scalarized>}
+    firrtl.module @Test(out %out_str: !firrtl.string) attributes {convention = #firrtl<convention scalarized>} {
+      // CHECK: %0 = firrtl.string "whatever"
+      // CHECK: %obj = firrtl.object @Class(out out_str: !firrtl.string, in in_str: !firrtl.string)
+      // CHECK: %1 = firrtl.object.subfield %obj[out_str] : !firrtl.class<@Class(out out_str: !firrtl.string, in in_str: !firrtl.string)>
+      // CHECK: %2 = firrtl.object.subfield %obj[in_str] : !firrtl.class<@Class(out out_str: !firrtl.string, in in_str: !firrtl.string)>
+      // CHECK: firrtl.propassign %2, %0 : !firrtl.string
+      // CHECK: firrtl.propassign %out_str, %1 : !firrtl.string
+      %0 = firrtl.string "whatever"
+      %obj = firrtl.object @Class(out out_str: !firrtl.string, in in_str: !firrtl.string)
+      %1 = firrtl.object.subfield %obj[out_str] : !firrtl.class<@Class(out out_str: !firrtl.string, in in_str: !firrtl.string)>
+      %2 = firrtl.object.subfield %obj[in_str] : !firrtl.class<@Class(out out_str: !firrtl.string, in in_str: !firrtl.string)>
+      firrtl.propassign %2, %0 : !firrtl.string
+      firrtl.propassign %out_str, %1 : !firrtl.string
+    }
+  }
+}
+
+// -----
+// Test that a live use of a forceable declaration keeps it alive.
+// https://github.com/llvm/circt/issues/5898
+
+// CHECK-LABEL: circuit "Issue5898"
+firrtl.circuit "Issue5898" {
+  firrtl.module @Issue5898(in %x: !firrtl.uint<5>, out %p: !firrtl.rwprobe<uint<5>>) {
+    // CHECK: connect
+    %w, %w_ref = firrtl.wire forceable : !firrtl.uint<5>, !firrtl.rwprobe<uint<5>>
+    firrtl.strictconnect %w, %x : !firrtl.uint<5>
+    firrtl.ref.define %p, %w_ref : !firrtl.rwprobe<uint<5>>
+  }
+}
+
+// -----
+// Test that annotations keep declarations alive.
+// CHECK-LABEL: "AnnoAlive"
+firrtl.circuit "AnnoAlive" {
+  firrtl.module @AnnoAlive() {
+     // CHECK: firrtl.wire
+     firrtl.wire {annotations = [{class = "circt.test"}]} : !firrtl.uint
+  }
+}
+
+// -----
+// Test warning about not being able to remove dead public modules.
+
+// CHECK-LABEL: "DeadPublic"
+firrtl.circuit "DeadPublic" {
+  // CHECK: module @PublicDeadChild
+  // expected-warning @below {{module `PublicDeadChild` is empty but cannot be removed because the module is public}}
+  firrtl.module @PublicDeadChild() {}
+  // CHECK: module @DeadPublic
+  firrtl.module @DeadPublic() {
+     firrtl.instance pdc @PublicDeadChild()
+  }
+}
+
+// -----
+// OMIR annotation should not block removal.
+//   - See: https://github.com/llvm/circt/issues/6199
+//
+// CHECK-LABEL: firrtl.circuit "OMIRRemoval"
+firrtl.circuit "OMIRRemoval" {
+  firrtl.module @OMIRRemoval() {
+    // CHECK-NOT: %tmp_0
+    %tmp_0 = firrtl.wire {
+      annotations = [
+        {
+           class = "freechips.rocketchip.objectmodel.OMIRTracker",
+           id = 0 : i64,
+           type = "OMReferenceTarget"
+        }
+      ]} : !firrtl.uint<1>
+
+    // CHECK-NOT: %tmp_1
+    %tmp_1 = firrtl.wire {
+      annotations = [
+        {
+           class = "freechips.rocketchip.objectmodel.OMIRTracker",
+           id = 1 : i64,
+           type = "OMMemberReferenceTarget"
+        }
+      ]} : !firrtl.uint<2>
+
+    // CHECK-NOT: %tmp_2
+    %tmp_2 = firrtl.wire {
+      annotations = [
+        {
+           class = "freechips.rocketchip.objectmodel.OMIRTracker",
+           id = 3 : i64,
+           type = "OMMemberInstanceTarget"
+        }
+      ]} : !firrtl.uint<3>
+
+    // Adding one additional annotation will block removal.
+    //
+    // CHECK: %tmp_3
+    %tmp_3 = firrtl.wire {
+      annotations = [
+        {
+           class = "freechips.rocketchip.objectmodel.OMIRTracker",
+           id = 4 : i64,
+           type = "OMMemberInstanceTarget"
+        },
+        {
+           class = "circt.test"
+        }
+      ]} : !firrtl.uint<4>
   }
 }

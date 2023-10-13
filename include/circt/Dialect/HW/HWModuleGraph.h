@@ -14,8 +14,8 @@
 #define CIRCT_DIALECT_HW_HWMODULEGRAPH_H
 
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWInstanceGraph.h"
 #include "circt/Dialect/HW/HWOps.h"
-#include "circt/Dialect/HW/InstanceGraphBase.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 #include "circt/Support/LLVM.h"
 #include "llvm/ADT/GraphTraits.h"
@@ -109,8 +109,12 @@ struct llvm::DOTGraphTraits<circt::hw::HWModuleOp>
           }
           llvm_unreachable("unhandled ICmp predicate");
         })
-        .Case<circt::seq::CompRegOp, circt::seq::FirRegOp>(
-            [&](auto op) { return op.getName().str(); })
+        .Case<circt::seq::FirRegOp>([&](auto op) { return op.getName().str(); })
+        .Case<circt::seq::CompRegOp>([&](auto op) -> std::string {
+          if (auto name = op.getName())
+            return name->str();
+          return "reg";
+        })
         .Case<circt::hw::ConstantOp>([&](auto op) {
           llvm::SmallString<64> valueString;
           op.getValue().toString(valueString, 10, false);
@@ -150,14 +154,15 @@ struct llvm::DOTGraphTraits<circt::hw::HWModuleOp>
     auto &os = g.getOStream();
     os << "subgraph cluster_entry_args {\n";
     os << "label=\"Input arguments\";\n";
+    circt::hw::ModulePortInfo iports(mod.getPortList());
     for (auto [info, arg] :
-         llvm::zip(mod.getPorts().inputs, mod.getArguments())) {
+         llvm::zip(iports.getInputs(), mod.getBodyBlock()->getArguments())) {
       g.emitSimpleNode(reinterpret_cast<void *>(&arg), "",
                        info.getName().str());
     }
     os << "}\n";
     for (auto [info, arg] :
-         llvm::zip(mod.getPorts().inputs, mod.getArguments())) {
+         llvm::zip(iports.getInputs(), mod.getBodyBlock()->getArguments())) {
       for (auto *user : arg.getUsers()) {
         g.emitEdge(reinterpret_cast<void *>(&arg), 0, user, -1, "");
       }
@@ -183,7 +188,7 @@ struct llvm::DOTGraphTraits<circt::hw::HWModuleOp>
       os << " style=bold";
 
     return os.str();
-  };
+  }
 };
 
 #endif // CIRCT_DIALECT_HW_HWMODULEGRAPH_H

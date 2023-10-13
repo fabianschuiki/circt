@@ -20,6 +20,7 @@
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/StringSaver.h"
 #include "llvm/Support/raw_ostream.h"
+#include <queue>
 
 namespace circt {
 namespace pretty {
@@ -166,6 +167,37 @@ public:
   void clear() override;
 };
 
+/// Note: Callable class must implement a callable with signature:
+/// void (Data)
+template <typename CallableTy, typename DataTy>
+class PrintEventAndStorageListener : public TokenStringSaver {
+
+  /// List of all the unique data associated with each callback token.
+  /// The fact that tokens on a stream can never be printed out of order,
+  /// ensures that CallbackTokens are always added and invoked in FIFO order,
+  /// hence no need to record an index into the Data list.
+  std::queue<DataTy> dataQ;
+  /// The storage for the callback, as a function object.
+  CallableTy &callable;
+
+public:
+  PrintEventAndStorageListener(CallableTy &c) : callable(c) {}
+
+  /// PrettyPrinter::Listener::print -- indicates all the preceding tokens on
+  /// the stream have been printed.
+  /// This is invoked when the CallbackToken is printed.
+  void print() override {
+    std::invoke(callable, dataQ.front());
+    dataQ.pop();
+  }
+  /// Get a token with the obj data.
+  CallbackToken getToken(DataTy obj) {
+    // Insert data onto the list.
+    dataQ.push(obj);
+    return CallbackToken();
+  }
+};
+
 //===----------------------------------------------------------------------===//
 // Streaming support.
 //===----------------------------------------------------------------------===//
@@ -208,6 +240,8 @@ struct PPSaveString {
 template <typename PPTy = PrettyPrinter>
 class TokenStream : public TokenBuilder<PPTy> {
   using Base = TokenBuilder<PPTy>;
+
+protected:
   TokenStringSaver &saver;
 
 public:
@@ -337,6 +371,28 @@ public:
   }
 };
 
+/// Wrap the TokenStream with a helper for CallbackTokens, to record the print
+/// events on the stream.
+template <typename CallableType, typename DataType,
+          typename PPTy = PrettyPrinter>
+class TokenStreamWithCallback : public TokenStream<PPTy> {
+  using Base = TokenStream<PPTy>;
+  PrintEventAndStorageListener<CallableType, DataType> &saver;
+
+  const bool enableCallback;
+
+public:
+  TokenStreamWithCallback(
+      PPTy &pp, PrintEventAndStorageListener<CallableType, DataType> &saver,
+      bool enableCallback)
+      : TokenStream<PPTy>(pp, saver), saver(saver),
+        enableCallback(enableCallback) {}
+  /// Add a Callback token.
+  void addCallback(DataType d) {
+    if (enableCallback)
+      Base::addToken(saver.getToken(d));
+  }
+};
 } // end namespace pretty
 } // end namespace circt
 

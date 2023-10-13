@@ -34,6 +34,8 @@ namespace firrtl {
 
 class FIRRTLType;
 class Forceable;
+class ClassLike;
+class ClassType;
 
 /// This holds the name and type that describes the module's ports.
 struct PortInfo {
@@ -48,40 +50,16 @@ struct PortInfo {
 
   /// Return true if this is a simple output-only port.  If you want the
   /// direction of the port, use the \p direction parameter.
-  bool isOutput() {
-    if (direction != Direction::Out)
-      return false;
-    if (type.isa<FIRRTLType>())
-      return !isInOut();
-    return true;
-  }
+  bool isOutput() const { return direction == Direction::Out && !isInOut(); }
 
   /// Return true if this is a simple input-only port.  If you want the
   /// direction of the port, use the \p direction parameter.
-  bool isInput() {
-    if (direction != Direction::In)
-      return false;
-    if (type.isa<FIRRTLType>())
-      return !isInOut();
-    return true;
-  }
+  bool isInput() const { return direction == Direction::In && !isInOut(); }
 
   /// Return true if this is an inout port.  This will be true if the port
   /// contains either bi-directional signals or analog types.
-  bool isInOut() {
-    auto flags = TypeSwitch<Type, RecursiveTypeProperties>(type)
-                     .Case<FIRRTLBaseType>([](auto base) {
-                       return base.getRecursiveTypeProperties();
-                     })
-                     .Case<RefType>([](auto ref) {
-                       return ref.getType().getRecursiveTypeProperties();
-                     })
-                     .Default([](auto) {
-                       llvm_unreachable("unsupported type");
-                       return RecursiveTypeProperties{};
-                     });
-    return !flags.isPassive || flags.containsAnalog;
-  }
+  /// Non-HW types (e.g., ref types) are never considered InOut.
+  bool isInOut() const { return isTypeInOut(type); }
 
   /// Default constructors
   PortInfo(StringAttr name, Type type, Direction dir, StringAttr symName = {},
@@ -123,6 +101,20 @@ Forceable
 replaceWithNewForceability(Forceable op, bool forceable,
                            ::mlir::PatternRewriter *rewriter = nullptr);
 } // end namespace detail
+
+//===----------------------------------------------------------------------===//
+// ClassLike Helpers
+//===----------------------------------------------------------------------===//
+
+namespace detail {
+ClassType getInstanceTypeForClassLike(ClassLike classOp);
+
+/// Assuming that the classOp is the source of truth, verify that the type
+/// accurately matches the signature of the class.
+LogicalResult
+verifyTypeAgainstClassLike(ClassLike classOp, ClassType type,
+                           function_ref<InFlightDiagnostic()> emitError);
+} // namespace detail
 
 } // namespace firrtl
 } // namespace circt

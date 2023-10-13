@@ -6,12 +6,22 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetails.h"
+#include "circt/Dialect/Arc/ArcOps.h"
+#include "circt/Dialect/Arc/ArcPasses.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/SHA256.h"
 
 #define DEBUG_TYPE "arc-dedup"
+
+namespace circt {
+namespace arc {
+#define GEN_PASS_DEF_DEDUP
+#include "circt/Dialect/Arc/ArcPasses.h.inc"
+} // namespace arc
+} // namespace circt
 
 using namespace circt;
 using namespace arc;
@@ -320,12 +330,12 @@ private:
 } // namespace
 
 static void addCallSiteOperands(
-    MutableArrayRef<StateOp> callSites,
+    MutableArrayRef<mlir::CallOpInterface> callSites,
     ArrayRef<std::variant<Operation *, unsigned>> operandMappings) {
   SmallDenseMap<Operation *, Operation *> clonedOps;
   SmallVector<Value> newOperands;
-  for (auto &stateOp : callSites) {
-    OpBuilder builder(stateOp);
+  for (auto &callOp : callSites) {
+    OpBuilder builder(callOp);
     newOperands.clear();
     clonedOps.clear();
     for (auto mapping : operandMappings) {
@@ -336,10 +346,11 @@ static void addCallSiteOperands(
           newOp = builder.clone(*op);
         newOperands.push_back(newOp->getResult(0));
       } else {
-        newOperands.push_back(stateOp.getInputs()[std::get<unsigned>(mapping)]);
+        newOperands.push_back(
+            callOp.getArgOperands()[std::get<unsigned>(mapping)]);
       }
     }
-    stateOp.getInputsMutable().assign(newOperands);
+    callOp.getArgOperandsMutable().assign(newOperands);
   }
 }
 
@@ -349,14 +360,14 @@ static bool isOutlinable(OpOperand &operand) {
 }
 
 namespace {
-struct DedupPass : public DedupBase<DedupPass> {
+struct DedupPass : public arc::impl::DedupBase<DedupPass> {
   void runOnOperation() override;
   void replaceArcWith(DefineOp oldArc, DefineOp newArc);
 
   /// A mapping from arc names to arc definitions.
   DenseMap<StringAttr, DefineOp> arcByName;
   /// A mapping from arc definitions to call sites.
-  DenseMap<DefineOp, SmallVector<StateOp, 1>> callSites;
+  DenseMap<DefineOp, SmallVector<mlir::CallOpInterface, 1>> callSites;
 };
 
 struct ArcHash {
@@ -371,6 +382,7 @@ struct ArcHash {
 void DedupPass::runOnOperation() {
   arcByName.clear();
   callSites.clear();
+  SymbolTableCollection symbolTable;
 
   // Compute the structural hash for each arc definition.
   SmallVector<ArcHash> arcHashes;
@@ -381,13 +393,13 @@ void DedupPass::runOnOperation() {
   }
 
   // Collect the arc call sites.
-  getOperation().walk([&](Operation *op) {
-    if (auto defineOp = dyn_cast<DefineOp>(op))
-      return WalkResult::skip();
-    if (auto stateOp = dyn_cast<StateOp>(op))
-      callSites[arcByName.lookup(stateOp.getArcAttr().getAttr())].push_back(
-          stateOp);
-    return WalkResult::advance();
+  getOperation().walk([&](mlir::CallOpInterface callOp) {
+    if (auto defOp =
+            dyn_cast_or_null<DefineOp>(callOp.resolveCallable(&symbolTable)))
+      callSites[arcByName.lookup(callOp.getCallableForCallee()
+                                     .get<mlir::SymbolRefAttr>()
+                                     .getLeafReference())]
+          .push_back(callOp);
   });
 
   // Sort the arcs by hash such that arcs with the same hash are next to each
@@ -555,6 +567,9 @@ void DedupPass::runOnOperation() {
     LLVM_DEBUG({
       llvm::dbgs() << "- Outlining " << outlineOperands.size()
                    << " operands from " << defineOp.getSymNameAttr() << "\n";
+      for (auto entry : outlineOperands)
+        llvm::dbgs() << "  - Operand #" << entry.first->getOperandNumber()
+                     << " of " << *entry.first->getOwner() << "\n";
       for (auto name : candidateNames)
         llvm::dbgs() << "  - Candidate " << name << "\n";
     });
@@ -636,7 +651,8 @@ void DedupPass::runOnOperation() {
         &getContext(), newInputTypes, defineOp.getFunctionType().getResults()));
     addCallSiteOperands(callSites[defineOp], newOperands);
     for (auto *op : outlinedOps)
-      op->erase();
+      if (op->use_empty())
+        op->erase();
 
     // Perform the actual deduplication with other arcs.
     for (unsigned otherIdx = arcIdx + 1; otherIdx != arcEnd; ++otherIdx) {
@@ -704,12 +720,15 @@ void DedupPass::runOnOperation() {
 }
 
 void DedupPass::replaceArcWith(DefineOp oldArc, DefineOp newArc) {
+  ++dedupPassNumArcsDeduped;
+  auto oldArcOps = oldArc.getOps();
+  dedupPassTotalOps += std::distance(oldArcOps.begin(), oldArcOps.end());
   auto &oldUses = callSites[oldArc];
   auto &newUses = callSites[newArc];
-  auto newArcName = FlatSymbolRefAttr::get(newArc.getSymNameAttr());
-  for (auto stateOp : oldUses) {
-    stateOp.setArcAttr(newArcName);
-    newUses.push_back(stateOp);
+  auto newArcName = SymbolRefAttr::get(newArc.getSymNameAttr());
+  for (auto callOp : oldUses) {
+    callOp.setCalleeFromCallable(newArcName);
+    newUses.push_back(callOp);
   }
   callSites.erase(oldArc);
   arcByName.erase(oldArc.getSymNameAttr());

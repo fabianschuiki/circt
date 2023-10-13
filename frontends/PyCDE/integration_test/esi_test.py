@@ -9,6 +9,7 @@ import pycde
 from pycde import (Clock, Input, InputChannel, OutputChannel, Module, generator,
                    types)
 from pycde import esi
+from pycde.bsp import cosim
 from pycde.constructs import Wire
 
 import sys
@@ -23,7 +24,7 @@ class HostComms:
 
 
 class Producer(Module):
-  clk = Input(types.i1)
+  clk = Clock()
   int_out = OutputChannel(types.i32)
 
   @generator
@@ -33,7 +34,7 @@ class Producer(Module):
 
 
 class Consumer(Module):
-  clk = Input(types.i1)
+  clk = Clock()
   int_in = InputChannel(types.i32)
 
   @generator
@@ -56,7 +57,7 @@ class LoopbackInOutAdd7(Module):
 
 
 class Mid(Module):
-  clk = Clock(types.i1)
+  clk = Clock()
   rst = Input(types.i1)
 
   @generator
@@ -68,7 +69,7 @@ class Mid(Module):
 
 
 class Top(Module):
-  clk = Clock(types.i1)
+  clk = Clock()
   rst = Input(types.i1)
 
   @generator
@@ -77,7 +78,7 @@ class Top(Module):
 
 
 if __name__ == "__main__":
-  s = pycde.System(esi.CosimBSP(Top),
+  s = pycde.System(cosim.CosimBSP(Top),
                    name="ESILoopback",
                    output_directory=sys.argv[1],
                    sw_api_langs=["python"])

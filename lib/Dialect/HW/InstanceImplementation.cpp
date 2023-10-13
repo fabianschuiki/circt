@@ -13,14 +13,6 @@
 using namespace circt;
 using namespace circt::hw;
 
-std::pair<ArrayAttr, ArrayAttr>
-instance_like_impl::getHWModuleArgAndResultNames(Operation *module) {
-  assert(isAnyModule(module) && "Can only reference a module");
-
-  return {module->getAttrOfType<ArrayAttr>("argNames"),
-          module->getAttrOfType<ArrayAttr>("resultNames")};
-}
-
 Operation *
 instance_like_impl::getReferencedModule(const HWSymbolCache *cache,
                                         Operation *instanceOp,
@@ -36,13 +28,13 @@ instance_like_impl::getReferencedModule(const HWSymbolCache *cache,
 LogicalResult instance_like_impl::verifyReferencedModule(
     Operation *instanceOp, SymbolTableCollection &symbolTable,
     mlir::FlatSymbolRefAttr moduleName, Operation *&module) {
-  module = symbolTable.lookupNearestSymbolFrom(instanceOp, moduleName);
+  module = getReferencedModule(nullptr, instanceOp, moduleName);
   if (module == nullptr)
     return instanceOp->emitError("Cannot find module definition '")
            << moduleName.getValue() << "'";
 
   // It must be some sort of module.
-  if (!hw::isAnyModule(module))
+  if (!isa<HWModuleLike>(module))
     return instanceOp->emitError("symbol reference '")
            << moduleName.getValue() << "' isn't a module";
 
@@ -240,8 +232,11 @@ LogicalResult instance_like_impl::verifyInstanceOfHWModule(
       };
 
   // Check that input types are consistent with the referenced module.
-  auto [modArgNames, modResultNames] =
-      instance_like_impl::getHWModuleArgAndResultNames(module);
+  auto mod = cast<HWModuleLike>(module);
+  auto modArgNames =
+      ArrayAttr::get(instance->getContext(), mod.getInputNames());
+  auto modResultNames =
+      ArrayAttr::get(instance->getContext(), mod.getOutputNames());
 
   ArrayRef<Type> resolvedModInputTypesRef = getModuleType(module).getInputs();
   SmallVector<Type> resolvedModInputTypes;

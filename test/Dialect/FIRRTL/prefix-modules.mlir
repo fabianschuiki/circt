@@ -260,7 +260,7 @@ firrtl.circuit "NLATop" {
 // completely untrodden territory for Grand Central.  However, the behavior here
 // is the exact same as how normal modules are cloned.)
 //
-// CHECK-LABLE: firrtl.circuit "GCTDataMemTapsPrefix"
+// CHECK-LABEL: firrtl.circuit "GCTDataMemTapsPrefix"
 firrtl.circuit "GCTDataMemTapsPrefix" {
   // CHECK:      firrtl.extmodule @FOO_DataTap
   // CHECK-SAME:   defname = "FOO_DataTap"
@@ -394,4 +394,36 @@ firrtl.circuit "MarkDUTAnnotationGetsPrefix" {
      }
     ]
   } {}
+}
+
+
+// Test that inner name refs are properly adjusted.
+firrtl.circuit "RewriteInnerNameRefs" {
+  // CHECK-LABEL: firrtl.module @Prefix_RewriteInnerNameRefs
+  firrtl.module @RewriteInnerNameRefs() attributes {
+    annotations = [
+     {
+       class = "sifive.enterprise.firrtl.NestedPrefixModulesAnnotation",
+       prefix = "Prefix_",
+       inclusive = true
+     }
+    ]
+  } {
+    %wire = firrtl.wire sym @wire : !firrtl.uint<1>
+    firrtl.instance nested @Nested()
+
+    // CHECK: #hw.innerNameRef<@Prefix_RewriteInnerNameRefs::@wire>
+    sv.verbatim "{{0}}" {symbols=[#hw.innerNameRef<@RewriteInnerNameRefs::@wire>]}
+
+    // CHECK: #hw.innerNameRef<@Prefix_RewriteInnerNameRefs::@wire>
+    // CHECK: #hw.innerNameRef<@Prefix_Nested::@wire>
+    sv.verbatim "{{0}} {{1}}" {symbols=[
+      #hw.innerNameRef<@RewriteInnerNameRefs::@wire>,
+      #hw.innerNameRef<@Nested::@wire>
+    ]}
+  }
+
+  firrtl.module @Nested() {
+    %wire = firrtl.wire sym @wire : !firrtl.uint<1>
+  }
 }

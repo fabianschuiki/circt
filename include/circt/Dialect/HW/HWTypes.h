@@ -15,6 +15,7 @@
 #define CIRCT_DIALECT_HW_TYPES_H
 
 #include "circt/Dialect/HW/HWDialect.h"
+#include "circt/Dialect/HW/HWTypeInterfaces.h"
 
 #include "circt/Support/LLVM.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -22,10 +23,26 @@
 
 namespace circt {
 namespace hw {
+
+struct ModulePort {
+  enum Direction { Input, Output, InOut };
+  mlir::StringAttr name;
+  mlir::Type type;
+  Direction dir;
+};
+
 class HWSymbolCache;
 class ParamDeclAttr;
 class TypedeclOp;
+class ModuleType;
+
 namespace detail {
+
+ModuleType fnToMod(Operation *op, ArrayRef<Attribute> inputNames,
+                   ArrayRef<Attribute> outputNames);
+ModuleType fnToMod(FunctionType fn, ArrayRef<Attribute> inputNames,
+                   ArrayRef<Attribute> outputNames);
+
 /// Struct defining a field. Used in structs.
 struct FieldInfo {
   mlir::StringAttr name;
@@ -84,7 +101,7 @@ bool type_isa(Type type) {
 
   // Then check if it is a type alias wrapping the requested type.
   if (auto alias = type.dyn_cast<TypeAliasType>())
-    return alias.getInnerType().isa<BaseTy...>();
+    return type_isa<BaseTy...>(alias.getInnerType());
 
   return false;
 }
@@ -106,7 +123,7 @@ BaseTy type_cast(Type type) {
     return type.cast<BaseTy>();
 
   // Otherwise, it must be a type alias wrapping the requested type.
-  return type.cast<TypeAliasType>().getInnerType().cast<BaseTy>();
+  return type_cast<BaseTy>(type.cast<TypeAliasType>().getInnerType());
 }
 
 template <typename BaseTy>

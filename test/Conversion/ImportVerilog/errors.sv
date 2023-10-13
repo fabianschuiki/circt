@@ -15,6 +15,6 @@ endmodule
 // -----
 
 module Foo;
-  // expected-error @below {{unsupported module member}}
+  // expected-warning @below {{unsupported construct ignored}}
   initial;
 endmodule

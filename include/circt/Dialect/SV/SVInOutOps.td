@@ -11,26 +11,28 @@
 //
 //===----------------------------------------------------------------------===//
 
+include "circt/Dialect/HW/HWOpInterfaces.td"
 include "circt/Types.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
 // Note that net declarations like 'wire' should not appear in an always block.
 def WireOp : SVOp<"wire", [NonProceduralOp,
-          DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
+          DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+          DeclareOpInterfaceMethods<InnerSymbol, ["getTargetResultIndex"]>]> {
   let summary = "Define a new wire";
   let description = [{
     Declare a SystemVerilog Net Declaration of 'wire' type.
      See SV Spec 6.7, pp97.
     }];
 
-  let arguments = (ins StrAttr:$name, OptionalAttr<SymbolNameAttr>:$inner_sym);
+  let arguments = (ins StrAttr:$name, OptionalAttr<InnerSymAttr>:$inner_sym);
   let results = (outs InOutType:$result);
 
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<(ins "::mlir::Type":$elementType,
-                      CArg<"StringAttr", "StringAttr()">:$name,
-                      CArg<"StringAttr", "StringAttr()">:$inner_sym)>,
+                   CArg<"StringAttr", "StringAttr()">:$name,
+                   CArg<"hw::InnerSymAttr", "hw::InnerSymAttr()">:$innerSym)>,
     OpBuilder<(ins "::mlir::Type":$elementType, CArg<"StringRef">:$name), [{
       return build($_builder, $_state, elementType,
                    $_builder.getStringAttr(name));
@@ -51,26 +53,32 @@ def WireOp : SVOp<"wire", [NonProceduralOp,
 }
 
 def RegOp : SVOp<"reg", [
-          DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
+          DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+          DeclareOpInterfaceMethods<InnerSymbol, ["getTargetResultIndex"]>]> {
   let summary = "Define a new `reg` in SystemVerilog";
    let description = [{
      Declare a SystemVerilog Variable Declaration of 'reg' type.
      See SV Spec 6.8, pp100.
    }];
-  let arguments = (ins StrAttr:$name, OptionalAttr<SymbolNameAttr>:$inner_sym);
+  let arguments = (ins
+    StrAttr:$name,
+    Optional<AnyType>:$init,
+    OptionalAttr<InnerSymAttr>:$inner_sym);
   let results = (outs InOutType:$result);
 
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<(ins "::mlir::Type":$elementType,
                     CArg<"StringAttr", "StringAttr()">:$name,
-                    CArg<"StringAttr", "StringAttr()">:$inner_sym)>
+                    CArg<"hw::InnerSymAttr", "hw::InnerSymAttr()">:$innerSym,
+                    CArg<"mlir::Value", "{}">:$init)>
   ];
 
   // We handle the name in a custom way, so we use a customer parser/printer.
   let assemblyFormat = [{
-    (`sym` $inner_sym^)? `` custom<ImplicitSSAName>($name) attr-dict
+    (`init` $init^)? (`sym` $inner_sym^)? `` custom<ImplicitSSAName>($name) attr-dict
     `:` qualified(type($result))
+    custom<ImplicitInitType>(ref(type($result)),ref($init), type($init))
   }];
   let hasCanonicalizeMethod = true;
 
@@ -102,25 +110,35 @@ def XMROp : SVOp<"xmr", []> {
   let assemblyFormat = "(`isRooted` $isRooted^)? custom<XMRPath>($path, $terminal) attr-dict `:` qualified(type($result))";
 }
 
-def XMRRefOp : SVOp<"xmr.ref", []> {
-  let summary = "Encode a reference to something with a hw.globalRef.";
+def XMRRefOp : SVOp<"xmr.ref", [
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+  Pure
+]> {
+  let summary = "Encode a reference to something with a hw.hierpath.";
   let description = [{
     This represents a hierarchical path, but using something which the compiler
     can understand.  In contrast to the XMROp (which models pure Verilog
     hierarchical paths which may not map to anything knowable in the circuit),
-    this op uses a `hw.globalRef` to refer to something which exists in the
+    this op uses a `hw.hierpath` to refer to something which exists in the
     circuit.
 
     Generally, this operation is always preferred for situations where
     hierarchical paths cannot be known statically and may change.
+
+    `verbatimSuffix` should only be populated when the final operation on the
+    path is an instance of an external module.
   }];
   let arguments = (
-    ins NameRefAttr:$ref,
-        DefaultValuedAttr<StrAttr, "{}">:$stringLeaf
+    ins FlatSymbolRefAttr:$ref,
+    DefaultValuedAttr<StrAttr, "{}">:$verbatimSuffix
   );
   let results = (outs InOutType:$result);
   let assemblyFormat = [{
-    $ref ( $stringLeaf^ )? attr-dict `:` qualified(type($result))
+    $ref ( $verbatimSuffix^ )? attr-dict `:` qualified(type($result))
+  }];
+
+  let extraClassDeclaration = [{
+    hw::HierPathOp getReferencedPath(const hw::HWSymbolCache *cache);
   }];
 }
 
@@ -178,6 +196,7 @@ def IndexedPartSelectInOutOp : SVOp<"indexed_part_select_inout",
                                           std::optional<Location> loc,
                                           ValueRange operands,
                                           DictionaryAttr attrs,
+                                          mlir::OpaqueProperties properties,
                                           mlir::RegionRange regions,
                                           SmallVectorImpl<Type> &results);
   }];
@@ -208,28 +227,30 @@ def StructFieldInOutOp : SVOp<"struct_field_inout",
                                           std::optional<Location> loc,
                                           ValueRange operands,
                                           DictionaryAttr attrs,
+                                          mlir::OpaqueProperties properties,
                                           mlir::RegionRange regions,
                                           SmallVectorImpl<Type> &results);
   }];
 
 }
 
-def LogicOp : SVOp<"logic", [DeclareOpInterfaceMethods<OpAsmOpInterface,
-                                                       ["getAsmResultNames"]>]> {
+def LogicOp : SVOp<"logic", [
+      DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+      DeclareOpInterfaceMethods<InnerSymbol, ["getTargetResultIndex"]>]> {
   let summary = "Define a logic";
   let description = [{
     Declare a SystemVerilog Variable Declaration of 'logic' type.
     See SV Spec 6.8, pp100.
     }];
 
-  let arguments = (ins StrAttr:$name, OptionalAttr<SymbolNameAttr>:$inner_sym);
+  let arguments = (ins StrAttr:$name, OptionalAttr<InnerSymAttr>:$inner_sym);
   let results = (outs InOutType:$result);
 
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<(ins "::mlir::Type":$elementType,
-                      CArg<"StringAttr", "StringAttr()">:$name,
-                      CArg<"StringAttr", "StringAttr()">:$inner_sym)>,
+                   CArg<"StringAttr", "StringAttr()">:$name,
+                   CArg<"hw::InnerSymAttr", "hw::InnerSymAttr()">:$innerSym)>,
     OpBuilder<(ins "::mlir::Type":$elementType, CArg<"StringRef">:$name), [{
       return build($_builder, $_state, elementType,
                    $_builder.getStringAttr(name));

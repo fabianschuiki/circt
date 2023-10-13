@@ -44,6 +44,7 @@ digraph G {
     Calyx [URL="https://circt.llvm.org/docs/Dialects/Calyx/"]
     FIRRTL [URL="https://circt.llvm.org/docs/Dialects/FIRRTL/"]
     Pipeline [URL="https://circt.llvm.org/docs/Dialects/Pipeline/"]
+    LoopSchedule [URL="https://circt.llvm.org/docs/Dialects/LoopSchedule/"]
     SSP [URL="https://circt.llvm.org/docs/Dialects/SSP/"]
     MSFT [URL="https://circt.llvm.org/docs/Dialects/MSFT/"]
     ESI [URL="https://circt.llvm.org/docs/Dialects/ESI/"]
@@ -51,6 +52,12 @@ digraph G {
     HWArith [URL="https://circt.llvm.org/docs/Dialects/HWArith/"]
     MooreMIR [URL="https://circt.llvm.org/docs/Dialects/Moore/", label="Moore MIR"]
 
+    // Intermediate node to target when lowering to both SV and Core dialects
+    lower_to_sv_and_core [shape=point label="" fillcolor=black]
+    
+    // Intermediate node to target when lowering to Core dialects
+    lower_to_core [shape=point label="" fillcolor=black]
+    
     // Invisible node to make space for RTL cluster's incoming edges.
     space_above_RTL [style = invis, label=""]
 
@@ -63,6 +70,7 @@ digraph G {
       Interop [URL="https://circt.llvm.org/docs/Dialects/Interop/"]
     }
     LLHD [URL="https://circt.llvm.org/docs/Dialects/LLHD/"]
+    Arc [URL="https://circt.llvm.org/docs/Dialects/Arc/"]
 
     // Backend dialects
     SV [URL="https://circt.llvm.org/docs/Dialects/SV/"]
@@ -70,6 +78,7 @@ digraph G {
 
     subgraph backend_internal_tools{
       node [fillcolor="#fdc086"]
+      Arcilator
       llhd_sim [label="llhd-sim"]
       ExportSystemC
       ExportVerilog [URL="https://circt.llvm.org/docs/VerilogGeneration/"]
@@ -102,13 +111,14 @@ digraph G {
     ServiceDesc [label="ESI system description\n(JSON/Capnp)"]
     SoftwareAPI [label="Software API\n(e.g. py/c++/c#)" style=dashed]
     TCL [label="Placements (tcl)"]
+    SimBinary [label="Simulation Binary (obj)"]
   }
 
   // ===== Connections =====
   // Dialect conversions
   SCF -> Calyx
-  Affine -> Pipeline
-  Pipeline -> Calyx
+  Affine -> LoopSchedule
+  LoopSchedule -> Calyx
   Arith -> {Handshake Calyx} [ltail=cluster_std_arith_dialect]
 
   Handshake -> FIRRTL
@@ -116,13 +126,21 @@ digraph G {
 
   // Things that lower into a subset of the RTL-like dialects. Cluster these
   // together to avoid a massive clutter.
-  {FIRRTL FSM ESI MSFT HWArith MooreMIR} -> HW [lhead=cluster_RTL]
+  {Pipeline MSFT HWArith MooreMIR} -> lower_to_core [arrowhead=none]
+  {ESI FIRRTL FSM} -> lower_to_sv_and_core [arrowhead=none]
+  lower_to_sv_and_core -> SV
+  lower_to_sv_and_core -> Comb [lhead=cluster_RTL]
+  lower_to_core -> Comb [lhead=cluster_RTL]
   Seq -> SV
   {HW MooreMIR} -> LLHD
+  Interop -> Arc [ltail=cluster_RTL]
   Comb -> SystemC [ltail=cluster_RTL]
   ExportVerilog -> SVFile
 
   // Tool flows
+  Arc -> Arcilator
+  Arcilator -> SimBinary
+  Scheduling -> LoopSchedule [dir=both]
   Scheduling -> Pipeline [dir=both]
   Chisel -> FIRFile
   FIRFile -> FIRRTLParser
@@ -135,17 +153,14 @@ digraph G {
   SVVHDL -> Moore [weight=999]
   Moore -> MooreMIR
   Calyx -> Calyx_native
-  Calyx_native -> HW [lhead=cluster_RTL]
+  Calyx_native -> lower_to_sv_and_core [arrowhead=none]
   LLHD -> llhd_sim
   llhd_sim -> VCDTrace
   //ESI -> CapNProto
   ESI -> ServiceDesc
   MSFT -> TCL
   PyFile -> PyCDE
-  PyCDE -> ESI
-  PyCDE -> MSFT
-  PyCDE -> HWArith
-  PyCDE -> FSM
+  PyCDE -> {ESI MSFT HWArith FSM}
   Scheduling -> SSP [dir=both]
   Scheduling -> MSFT [dir=both, style=dashed]
   ServiceDesc -> SoftwareAPI [style=dashed]
@@ -157,10 +172,10 @@ digraph G {
   // Leave one rank free above the RTL cluster to improve routing of incoming
   // edges.
   {FIRRTL FSM ESI MSFT HWArith MooreMIR} -> space_above_RTL [weight=999, style=invis]
-  space_above_RTL -> {Seq HW Comb} [lhead=cluster_RTL, weight=999, style=invis]
+  {space_above_RTL} -> {Seq HW Comb} [lhead=cluster_RTL, weight=999, style=invis]
 
   // Fix the following sink nodes below the CIRCT cluster
-  SystemCFile -> {TCL ServiceDesc} [weight=999 style=invis]
+  SystemCFile -> {TCL ServiceDesc SVFile VCDTrace} [weight=999 style=invis]
 
   // Better organize the top.
   {PyTorch Polygeist Chisel} -> CF [weight=999 style=invis]

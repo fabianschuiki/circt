@@ -5,6 +5,7 @@
 from ._seq_ops_gen import *
 
 from .seq import CompRegOp
+from .._mlir_libs._circt._seq import *
 
 
 # Create a computational register whose input is the given value, and is clocked
@@ -12,7 +13,7 @@ from .seq import CompRegOp
 # signal. If a reset value is provided, the register will reset to that,
 # otherwise it will reset to zero. If name is provided, the register will be
 # named.
-def reg(value, clock, reset=None, reset_value=None, name=None):
+def reg(value, clock, reset=None, reset_value=None, name=None, sym_name=None):
   from . import hw
   from ..ir import IntegerAttr
   value_type = value.type
@@ -25,7 +26,11 @@ def reg(value, clock, reset=None, reset_value=None, name=None):
                             clk=clock,
                             reset=reset,
                             reset_value=reset_value,
-                            name=name).data.value
+                            name=name,
+                            sym_name=sym_name).data.value
   else:
-    return CompRegOp.create(value_type, input=value, clk=clock,
-                            name=name).data.value
+    return CompRegOp.create(value_type,
+                            input=value,
+                            clk=clock,
+                            name=name,
+                            sym_name=sym_name).data.value

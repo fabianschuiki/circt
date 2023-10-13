@@ -15,6 +15,17 @@
 
 include "mlir/Pass/PassBase.td"
 
+def ResolvePaths : Pass<"firrtl-resolve-paths", "firrtl::CircuitOp"> {
+  let summary = "Lowers UnresolvedPathOps to PathOps";
+  let description = [{
+    FIRRTL path operations are initially create as unresolved path operations,
+    which encode their target as a string. This pass parses and resolves those
+    target strings to actual path operations.  Path operations refer to their
+    targets using annotations with a unique identifier.
+  }];
+  let constructor = "circt::firrtl::createResolvePathsPass()";
+}
+
 def LowerFIRRTLAnnotations : Pass<"firrtl-lower-annotations", "firrtl::CircuitOp"> {
   let summary = "Lower FIRRTL annotations to usable entities";
   let description = [{
@@ -97,8 +108,8 @@ def IMConstProp : Pass<"firrtl-imconstprop", "firrtl::CircuitOp"> {
 def RegisterOptimizer : Pass<"firrtl-register-optimizer", "firrtl::FModuleOp"> {
   let summary = "Optimizer Registers";
   let description = [{
-    This pass applies classic FIRRTL register optimizations.  These 
-    optimizations are isolated to this pass as they can change the visible 
+    This pass applies classic FIRRTL register optimizations.  These
+    optimizations are isolated to this pass as they can change the visible
     behavior of the register, especially before reset.
   }];
   let constructor = "circt::firrtl::createRegisterOptimizerPass()";
@@ -117,7 +128,7 @@ def RemoveUnusedPorts : Pass<"firrtl-remove-unused-ports", "firrtl::CircuitOp"> 
   ];
 }
 
-def IMDeadCodeElim : Pass<"firrtl-imdeadcodeelim", "firrtl::CircuitOp"> {
+def IMDeadCodeElim : Pass<"firrtl-imdeadcodeelim", "mlir::ModuleOp"> {
   let summary = "Intermodule dead code elimination";
   let description = [{
     This pass performs inter-module liveness analysis and deletes dead code
@@ -169,7 +180,7 @@ def AddSeqMemPorts : Pass<"firrtl-add-seqmem-ports", "firrtl::CircuitOp"> {
   ];
 }
 
-def CreateSiFiveMetadata : Pass<"firrtl-emit-metadata", "firrtl::CircuitOp"> {
+def CreateSiFiveMetadata : Pass<"firrtl-emit-metadata", "mlir::ModuleOp"> {
   let summary = "Emit metadata of the FIRRTL modules";
   let description = [{
     This pass handles the emission of several different kinds of metadata.
@@ -177,12 +188,10 @@ def CreateSiFiveMetadata : Pass<"firrtl-emit-metadata", "firrtl::CircuitOp"> {
   let constructor = "circt::firrtl::createCreateSiFiveMetadataPass()";
   let options = [Option<"replSeqMem", "repl-seq-mem", "bool", "false",
       "Lower the seq mem for macro replacement and emit relevant metadata">,
-    Option<"replSeqMemCircuit", "repl-seq-mem-circuit", "std::string", "",
-      "Circuit root for seq mem metadata">,
     Option<"replSeqMemFile", "repl-seq-mem-file", "std::string", "",
       "File to which emit seq meme metadata">
   ];
-  let dependentDialects = ["hw::HWDialect"];
+  let dependentDialects = ["hw::HWDialect", "om::OMDialect"];
 }
 
 def FlattenMemory : Pass<"firrtl-flatten-memory", "firrtl::FModuleOp"> {
@@ -266,7 +275,7 @@ def LowerMatches : Pass<"firrtl-lower-matches", "firrtl::FModuleOp"> {
   let constructor = "circt::firrtl::createLowerMatchesPass()";
 }
 
-def ExpandWhens : Pass<"firrtl-expand-whens", "firrtl::FModuleOp"> {
+def ExpandWhens : InterfacePass<"firrtl-expand-whens", "firrtl::FModuleLike"> {
   let summary = "Remove all when conditional blocks.";
   let description = [{
     This pass will:
@@ -454,8 +463,17 @@ def GrandCentral : Pass<"firrtl-grand-central", "CircuitOp"> {
   let constructor = "circt::firrtl::createGrandCentralPass()";
   let dependentDialects = ["circt::sv::SVDialect", "circt::hw::HWDialect"];
   let options = [
-    Option<"instantiateCompanionOnly", "instantiate-companion-only", "bool", "false",
-      "Instantiate the companion without a bind and drop the interface">
+    Option<"companionMode", "companion-mode", "CompanionMode",
+           "CompanionMode::Bind",
+           "specify the handling of companion modules", [{
+            ::llvm::cl::values(
+              clEnumValN(CompanionMode::Bind, "bind",
+                "Lower companion instances to SystemVerilog binds"),
+              clEnumValN(CompanionMode::Instantiate, "instantiate",
+                "Instantiate companions in the design"),
+              clEnumValN(CompanionMode::Drop, "drop",
+                "Remove companions from the design"))
+           }]>
   ];
   let statistics = [
     Statistic<"numViews", "num-views-created",
@@ -467,18 +485,6 @@ def GrandCentral : Pass<"firrtl-grand-central", "CircuitOp"> {
     Statistic<"numAnnosRemoved", "num-annotations-removed",
       "Number of annotations removed">
   ];
-}
-
-def CheckCombCycles : Pass<"firrtl-check-comb-cycles", "firrtl::CircuitOp"> {
-  let summary = "Check combinational cycles and emit errors";
-  let description = [{
-    This pass checks combinational cycles in the IR and emit errors.
-  }];
-  let options = [
-    Option<"printSimpleCycle", "print-simple-cycle", "bool", "true",
-      "Print a simple cycle instead of printing all operations in SCC">
-  ];
-  let constructor = "circt::firrtl::createCheckCombCyclesPass()";
 }
 
 def CheckCombLoops : Pass<"firrtl-check-comb-loops", "firrtl::CircuitOp"> {
@@ -501,6 +507,11 @@ def MergeConnections : Pass<"merge-connections", "firrtl::FModuleOp"> {
     Option<"enableAggressiveMerging", "aggressive-merging", "bool", "false",
       "Merge connections even when source values won't be simplified.">
   ];
+}
+
+def Vectorization : Pass<"vectorization", "firrtl::FModuleOp"> {
+  let summary = "Transform firrtl primitive operations into vector operations";
+  let constructor = "circt::firrtl::createVectorizationPass()";
 }
 
 def InferReadWrite : Pass<"firrtl-infer-rw", "firrtl::FModuleOp"> {
@@ -597,6 +608,8 @@ def DropName : Pass<"firrtl-drop-names", "firrtl::FModuleOp"> {
            }]>
   ];
   let statistics = [
+    Statistic<"numNamesDropped", "num-names-dropped",
+      "Number of names dropped">,
     Statistic<"numNamesConverted", "num-names-converted",
       "Number of interesting names made droppable">,
   ];
@@ -633,6 +646,15 @@ def LowerIntrinsics : Pass<"firrtl-lower-intrinsics", "firrtl::CircuitOp"> {
     intmodule to their implementation or op.
   }];
   let constructor = "circt::firrtl::createLowerIntrinsicsPass()";
+}
+
+def LowerOpenAggs : Pass<"firrtl-lower-open-aggs", "firrtl::CircuitOp"> {
+  let summary = "Lower 'Open' aggregates by splitting out non-hardware elements";
+  let description = [{
+     This pass lowers aggregates of the more open varieties into their equivalents
+     using only hardware types, by pulling out non-hardware to other locations.
+  }];
+  let constructor = "circt::firrtl::createLowerOpenAggsPass()";
 }
 
 def ResolveTraces : Pass<"firrtl-resolve-traces", "firrtl::CircuitOp"> {
@@ -675,6 +697,98 @@ def VBToBV : Pass<"firrtl-vb-to-bv", "firrtl::CircuitOp"> {
     vectors.
   }];
   let constructor = "circt::firrtl::createVBToBVPass()";
+}
+
+def DropConst : Pass<"firrtl-drop-const", "firrtl::CircuitOp"> {
+  let summary = "Drop 'const' modifier from types";
+  let description = [{
+    This pass drops the 'const' modifier from all types and removes all
+    const-cast ops.
+
+    This simplifies downstream passes and folds so that they do not need to
+    take 'const' into account.
+  }];
+  let constructor = "circt::firrtl::createDropConstPass()";
+}
+
+def FinalizeIR : Pass<"firrtl-finalize-ir", "mlir::ModuleOp"> {
+  let summary = "Perform final IR mutations after ExportVerilog";
+  let description = [{
+    This pass finalizes the IR after it has been exported with ExportVerilog,
+    and before firtool emits the final IR. This includes mutations like dropping
+    verbatim ops that represent sideband files and are not required in the IR.
+  }];
+  let constructor = "circt::firrtl::createFinalizeIRPass()";
+  let dependentDialects = ["hw::HWDialect", "sv::SVDialect"];
+}
+
+def LowerClasses : Pass<"firrtl-lower-classes", "firrtl::CircuitOp"> {
+  let summary = "Lower FIRRTL classes and objects to OM classes and objects";
+  let description = [{
+    This pass walks all FIRRTL classes and creates OM classes. It also lowers
+    FIRRTL objects to OM objects. OM classes are created with parameters
+    corresponding to FIRRTL input properties, and OM class fields corresponding
+    to FIRRTL output properties. FIRRTL operations are converted to OM
+    operations.
+  }];
+  let constructor = "circt::firrtl::createLowerClassesPass()";
+  let dependentDialects = ["om::OMDialect"];
+}
+
+def LowerGroups : Pass<"firrtl-lower-groups", "firrtl::CircuitOp"> {
+  let summary = "Lower optional groups to instances";
+  let description = [{
+    This pass converts FIRRTL optional groups to new modules and instantiations.
+    Referenced SSA values captured by a group are converted to ports of the
+    created module.
+  }];
+  let constructor = "circt::firrtl::createLowerGroupsPass()";
+  let dependentDialects = ["sv::SVDialect"];
+}
+
+def GroupSink : Pass<"firrtl-group-sink", "firrtl::FModuleOp"> {
+  let summary = "Sink operations into FIRRTL optional groups";
+  let description = [{
+
+  }];
+  let constructor = "::circt::firrtl::createGroupSinkPass()";
+  let statistics = [
+    Statistic<"numSunk", "num-sunk", "Number of operations sunk">,
+  ];
+}
+
+def HoistPassthrough : Pass<"firrtl-hoist-passthrough", "firrtl::CircuitOp"> {
+  let summary = "Hoist passthrough logic";
+  let description = [{
+    This pass hoists simple passthrough connections up.
+  }];
+  let constructor = "circt::firrtl::createHoistPassthroughPass()";
+  let options = [
+    Option<"hoistHWDrivers", "hoist-hw", "bool", "true",
+      "Hoist HW drivers.">
+  ];
+  let statistics = [
+    Statistic<"numUTurnsHoisted", "num-u-turns",
+      "Number of u-turns hoisted">,
+    Statistic<"numRefDrivers", "num-ref-drivers",
+      "Number of ref-type drivers processed">,
+    Statistic<"numHWDrivers", "num-hw-drivers",
+      "Number of hw-type drivers processed">
+  ];
+}
+
+def ProbeDCE : Pass<"firrtl-probe-dce", "firrtl::CircuitOp"> {
+  let summary = "Delete dead probe ports and operations.";
+  let description = [{
+    Simple pass to delete dead probe ports and operations.
+    Diagnoses illegal or unsupported input probe uses.
+    Post-condition: no input probe ports.
+  }];
+  let constructor = "circt::firrtl::createProbeDCEPass()";
+  let statistics = [
+    Statistic<"numErasedPorts", "num-erased-ports", "Number of ports erased">,
+    Statistic<"numErasedOps", "num-erased-ops", "Number of operations erased">
+  ];
 }
 
 #endif // CIRCT_DIALECT_FIRRTL_PASSES_TD

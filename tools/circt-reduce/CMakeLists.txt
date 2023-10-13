@@ -9,6 +9,10 @@ set(LIBS
   ${dialect_libs}
   ${mlir_dialect_libs}
 
+  CIRCTArcReductions
+  CIRCTHWReductions
+  CIRCTFIRRTLReductions
+  CIRCTReduceLib
   MLIRIR
   MLIRParser
   MLIRSupport
@@ -16,11 +20,9 @@ set(LIBS
   MLIRReduceLib
 )
 
-add_llvm_tool(circt-reduce
- circt-reduce.cpp
- Reduction.cpp
- Tester.cpp
- DEPENDS ${LIBS}
+add_circt_tool(circt-reduce
+  circt-reduce.cpp
+  DEPENDS ${LIBS}
 )
 target_link_libraries(circt-reduce PRIVATE ${LIBS})
 

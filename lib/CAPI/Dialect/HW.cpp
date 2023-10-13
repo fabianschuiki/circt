@@ -47,13 +47,13 @@ MlirType hwArrayTypeGetElementType(MlirType type) {
 }
 
 intptr_t hwArrayTypeGetSize(MlirType type) {
-  return unwrap(type).cast<ArrayType>().getSize();
+  return unwrap(type).cast<ArrayType>().getNumElements();
 }
 
 bool hwTypeIsAIntType(MlirType type) { return unwrap(type).isa<IntType>(); }
 
 MlirType hwParamIntTypeGet(MlirAttribute parameter) {
-  return wrap(IntType::get(unwrap(parameter)));
+  return wrap(IntType::get(unwrap(parameter).cast<TypedAttr>()));
 }
 
 MlirAttribute hwParamIntTypeGetWidthAttr(MlirType type) {
@@ -69,6 +69,62 @@ MlirType hwInOutTypeGetElementType(MlirType type) {
 }
 
 bool hwTypeIsAInOut(MlirType type) { return unwrap(type).isa<InOutType>(); }
+
+bool hwTypeIsAModuleType(MlirType type) {
+  return isa<ModuleType>(unwrap(type));
+}
+
+MlirType hwModuleTypeGet(MlirContext ctx, intptr_t numPorts,
+                         HWModulePort const *ports) {
+  SmallVector<ModulePort> modulePorts;
+  for (intptr_t i = 0; i < numPorts; ++i) {
+    HWModulePort port = ports[i];
+
+    ModulePort::Direction dir;
+    switch (port.dir) {
+    case HWModulePortDirection::Input:
+      dir = ModulePort::Direction::Input;
+      break;
+    case HWModulePortDirection::Output:
+      dir = ModulePort::Direction::Output;
+      break;
+    case HWModulePortDirection::InOut:
+      dir = ModulePort::Direction::InOut;
+      break;
+    }
+
+    StringAttr name = cast<StringAttr>(unwrap(port.name));
+    Type type = unwrap(port.type);
+
+    modulePorts.push_back(ModulePort{name, type, dir});
+  }
+
+  return wrap(ModuleType::get(unwrap(ctx), modulePorts));
+}
+
+intptr_t hwModuleTypeGetNumInputs(MlirType type) {
+  return cast<ModuleType>(unwrap(type)).getNumInputs();
+}
+
+MlirType hwModuleTypeGetInputType(MlirType type, intptr_t index) {
+  return wrap(cast<ModuleType>(unwrap(type)).getInputType(index));
+}
+
+MlirStringRef hwModuleTypeGetInputName(MlirType type, intptr_t index) {
+  return wrap(cast<ModuleType>(unwrap(type)).getInputName(index));
+}
+
+intptr_t hwModuleTypeGetNumOutputs(MlirType type) {
+  return cast<ModuleType>(unwrap(type)).getNumOutputs();
+}
+
+MlirType hwModuleTypeGetOutputType(MlirType type, intptr_t index) {
+  return wrap(cast<ModuleType>(unwrap(type)).getOutputType(index));
+}
+
+MlirStringRef hwModuleTypeGetOutputName(MlirType type, intptr_t index) {
+  return wrap(cast<ModuleType>(unwrap(type)).getOutputName(index));
+}
 
 bool hwTypeIsAStructType(MlirType type) {
   return unwrap(type).isa<StructType>();
@@ -144,6 +200,19 @@ MlirStringRef hwTypeAliasTypeGetScope(MlirType typeAlias) {
 // Attribute API.
 //===----------------------------------------------------------------------===//
 
+bool hwAttrIsAInnerSymAttr(MlirAttribute attr) {
+  return unwrap(attr).isa<InnerSymAttr>();
+}
+
+MlirAttribute hwInnerSymAttrGet(MlirAttribute symName) {
+  return wrap(InnerSymAttr::get(unwrap(symName).cast<StringAttr>()));
+}
+
+MlirAttribute hwInnerSymAttrGetSymName(MlirAttribute innerSymAttr) {
+  return wrap(
+      (Attribute)unwrap(innerSymAttr).cast<InnerSymAttr>().getSymName());
+}
+
 bool hwAttrIsAInnerRefAttr(MlirAttribute attr) {
   return unwrap(attr).isa<InnerRefAttr>();
 }
@@ -161,15 +230,6 @@ MlirAttribute hwInnerRefAttrGetName(MlirAttribute innerRefAttr) {
 
 MlirAttribute hwInnerRefAttrGetModule(MlirAttribute innerRefAttr) {
   return wrap((Attribute)unwrap(innerRefAttr).cast<InnerRefAttr>().getModule());
-}
-
-bool hwAttrIsAGlobalRefAttr(MlirAttribute attr) {
-  return unwrap(attr).isa<GlobalRefAttr>();
-}
-
-MlirAttribute hwGlobalRefAttrGet(MlirAttribute symName) {
-  auto symbolRef = FlatSymbolRefAttr::get(unwrap(symName).cast<StringAttr>());
-  return wrap(GlobalRefAttr::get(symbolRef.getContext(), symbolRef));
 }
 
 MLIR_CAPI_EXPORTED bool hwAttrIsAParamDeclAttr(MlirAttribute attr) {
@@ -219,4 +279,16 @@ MLIR_CAPI_EXPORTED MlirAttribute hwParamVerbatimAttrGet(MlirAttribute text) {
   MLIRContext *ctx = textAttr.getContext();
   auto type = NoneType::get(ctx);
   return wrap(ParamVerbatimAttr::get(ctx, textAttr, type));
+}
+
+MLIR_CAPI_EXPORTED bool hwAttrIsAOutputFileAttr(MlirAttribute attr) {
+  return unwrap(attr).isa<OutputFileAttr>();
+}
+MLIR_CAPI_EXPORTED MlirAttribute
+hwOutputFileGetFromFileName(MlirAttribute fileName, bool excludeFromFileList,
+                            bool includeReplicatedOp) {
+  auto fileNameStrAttr = unwrap(fileName).cast<StringAttr>();
+  return wrap(OutputFileAttr::getFromFilename(
+      fileNameStrAttr.getContext(), fileNameStrAttr.getValue(),
+      excludeFromFileList, includeReplicatedOp));
 }

@@ -49,8 +49,11 @@ config.iverilog_path = "@IVERILOG_PATH@"
 config.clang_tidy_path = "@CLANG_TIDY_PATH@"
 config.have_systemc = "@HAVE_SYSTEMC@"
 config.esi_capnp = "@ESI_CAPNP@"
+config.esi_runtime = "@ESI_RUNTIME@"
+config.esi_collateral_path = "@ESI_COLLATERAL_PATH@"
 config.bindings_python_enabled = @CIRCT_BINDINGS_PYTHON_ENABLED@
 config.bindings_tcl_enabled = @CIRCT_BINDINGS_TCL_ENABLED@
+config.lec_enabled = "@CIRCT_LEC_ENABLED@"
 
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.

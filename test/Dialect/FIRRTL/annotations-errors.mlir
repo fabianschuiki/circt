@@ -271,6 +271,21 @@ firrtl.circuit "InstancePortRef" attributes {rawAnnotations = [{
 }
 
 // -----
+// Check indexing into ref-type instance port is rejected.
+
+// expected-error @below {{annotation cannot target reference-type port 'ref' in module Ext}}
+// expected-error @below {{Unable to resolve target of annotation}}
+firrtl.circuit "InstancePortRefField" attributes {rawAnnotations = [{
+  class = "circt.test",
+  target = "~InstancePortRefField|InstancePortRefField>inst.ref.x"
+}]} {
+  firrtl.extmodule @Ext(out ref : !firrtl.ref<bundle<x: uint<1>>>)
+  firrtl.module @InstancePortRefField() {
+    %ref = firrtl.instance inst @Ext(out ref : !firrtl.ref<bundle<x: uint<1>>>)
+  }
+}
+
+// -----
 // Reject annotations on references.
 
 // expected-error @below {{cannot target reference-type 'out' in RefAnno}}
@@ -282,5 +297,123 @@ firrtl.circuit "RefAnno" attributes {rawAnnotations = [{
   firrtl.module @RefAnno(in %in : !firrtl.uint<1>, out %out : !firrtl.ref<uint<1>>) {
     %ref = firrtl.ref.send %in : !firrtl.uint<1>
     firrtl.ref.define %out, %ref : !firrtl.ref<uint<1>>
+  }
+}
+
+// -----
+// Reject annotations that index through references.
+
+// expected-error @below {{cannot target reference-type 'out' in RefFieldAnno}}
+// expected-error @below {{Unable to resolve target of annotation}}
+firrtl.circuit "RefFieldAnno" attributes {rawAnnotations = [{
+  class = "circt.test",
+  target = "~RefFieldAnno|RefFieldAnno>out.x"
+}]} {
+  firrtl.module @RefFieldAnno(in %in : !firrtl.bundle<x: uint<1>>, out %out : !firrtl.ref<bundle<x: uint<1>>>) {
+    %ref = firrtl.ref.send %in : !firrtl.bundle<x: uint<1>>
+    firrtl.ref.define %out, %ref : !firrtl.ref<bundle<x: uint<1>>>
+  }
+}
+
+// -----
+// Reject AttributeAnnotations on ports.
+
+
+
+// expected-error @+1 {{Unable to apply annotation:}}
+firrtl.circuit "Anno" attributes {rawAnnotations = [{
+  class = "firrtl.AttributeAnnotation",
+  target = "~Anno|Anno>in",
+  description = "attr"
+}]} {
+  // expected-error @+1 {{firrtl.AttributeAnnotation must target an operation. Currently ports are not supported}}
+  firrtl.module @Anno(in %in : !firrtl.uint<1>) {}
+}
+
+// -----
+// Reject AttributeAnnotations on external modules.
+
+// expected-error @+1 {{Unable to apply annotation:}}
+firrtl.circuit "Anno" attributes {rawAnnotations = [{
+  class = "firrtl.AttributeAnnotation",
+  target = "~Anno|Ext",
+  description = "ext"
+}]} {
+  // expected-error @+1 {{firrtl.AttributeAnnotation unhandled operation. The target must be a module, wire, node or register}}
+  firrtl.extmodule @Ext()
+  firrtl.module @Anno(in %in : !firrtl.uint<1>) {}
+}
+
+// -----
+// Reject annotation on a class.
+
+// expected-error @+1 {{Unable to resolve target of annotation: {class = "circt.test", target = "~Component|Class"}}}
+firrtl.circuit "Component"
+  attributes {
+    rawAnnotations = [
+      {
+        class = "circt.test",
+        target = "~Component|Class"
+      }
+    ]
+} {
+  firrtl.module @Component() {}
+  // expected-error @+1 {{annotations cannot target classes}}
+  firrtl.class @Class() {}
+}
+
+// -----
+// Reject annotation on a class's port.
+
+// expected-error @+1 {{Unable to resolve target of annotation: {class = "circt.test", target = "~Component|Class>port"}}}
+firrtl.circuit "Component"
+  attributes {
+    rawAnnotations = [
+      {
+        class = "circt.test",
+        target = "~Component|Class>port"
+      }
+    ]
+} {
+  firrtl.module @Component() {}
+  // expected-error @+1 {{annotations cannot target classes}}
+  firrtl.class @Class(in %port: !firrtl.string) {}
+}
+
+// -----
+// Don't crash trying to annotate-subindex through targets that don't name a result.
+
+// expected-error @below {{Unable to resolve target of annotation: {class = "circt.test", target = "~Issue5947|Issue5947>mem[0]"}}}
+firrtl.circuit "Issue5947"
+  attributes {
+    rawAnnotations = [
+      {
+        class = "circt.test",
+        target = "~Issue5947|Issue5947>mem[0]"
+      }
+    ]
+} {
+  firrtl.module @Issue5947() {
+    // expected-error @below {{index access in annotation not supported for this operation}}
+    %mem = chirrtl.combmem : !chirrtl.cmemory<uint<1>, 2>
+  }
+}
+
+// -----
+// Don't crash trying to annotate-subfield through targets that don't name a result.
+
+// expected-error @below {{Unable to resolve target of annotation: {class = "circt.test", target = "~Issue5947|Issue5947>mem.a"}}}
+firrtl.circuit "Issue5947"
+  attributes {
+    rawAnnotations = [
+      {
+        class = "circt.test",
+        target = "~Issue5947|Issue5947>mem.a"
+      }
+    ]
+} {
+  firrtl.module @Issue5947() {
+    // expected-error @below {{field access in annotation not supported for this operation}}
+    %mem = chirrtl.combmem : !chirrtl.cmemory<uint<1>, 2>
   }
 }

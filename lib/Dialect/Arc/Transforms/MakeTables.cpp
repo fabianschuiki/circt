@@ -6,12 +6,22 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetails.h"
+#include "circt/Dialect/Arc/ArcOps.h"
+#include "circt/Dialect/Arc/ArcPasses.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWOps.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
+#include "mlir/Pass/Pass.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "arc-lookup-tables"
+
+namespace circt {
+namespace arc {
+#define GEN_PASS_DEF_MAKETABLES
+#include "circt/Dialect/Arc/ArcPasses.h.inc"
+} // namespace arc
+} // namespace circt
 
 using namespace circt;
 using namespace arc;
@@ -22,7 +32,7 @@ namespace {
 static constexpr int tableMinOpCount = 20;
 static constexpr int tableMaxSize = 32768; // bits
 
-struct MakeTablesPass : public MakeTablesBase<MakeTablesPass> {
+struct MakeTablesPass : public arc::impl::MakeTablesBase<MakeTablesPass> {
   void runOnOperation() override;
   void runOnArc(DefineOp defineOp);
 };
@@ -107,7 +117,7 @@ void MakeTablesPass::runOnArc(DefineOp defineOp) {
   auto builder = ImplicitLocOpBuilder::atBlockBegin(defineOp.getLoc(),
                                                     &defineOp.getBodyBlock());
   SmallVector<Value> inputsToConcat(defineOp.getArguments());
-  llvm::reverse(inputsToConcat);
+  std::reverse(inputsToConcat.begin(), inputsToConcat.end());
   auto concatInputs = inputsToConcat.size() > 1
                           ? builder.create<comb::ConcatOp>(inputsToConcat)
                           : inputsToConcat[0];

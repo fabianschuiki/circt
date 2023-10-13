@@ -10,8 +10,7 @@ circuit MyModule :  @[CIRCUIT.scala 127]
     input in: UInt      @[InputPort.scala 0:0]
     output out: UInt<8> @[OutputPort.scala 0:0]
 
-    ; CHECK: firrtl.widthCast %in : {{.*}} loc("Somewhere.galaxy":42:1)
-    ; CHECK-NEXT: firrtl.strictconnect {{.*}}loc("Somewhere.galaxy":42:1)
+    ; CHECK: firrtl.connect {{.*}}loc("Somewhere.galaxy":42:1)
     out <= in   @[Somewhere.galaxy 42:1]
 
     ; CHECK: firrtl.node {{.*}}loc("Somewhere.galaxy":42:2)
@@ -64,8 +63,8 @@ circuit MyModule :  @[CIRCUIT.scala 127]
     node mask_nbit_2 = eq(mask_bit_2, UInt<1>("h0")) @[Misc.scala 210:20]
 
     ; Make sure the locator is applied to all the subexpressions.
-    ; CHECK:  %c0_ui1 = firrtl.constant 0 : !firrtl.uint<1> loc("Misc.scala":210:20)
-    ; CHECK:  %0 = firrtl.eq %mask_bit_2, %c0_ui1 : (!firrtl.uint<1>, !firrtl.uint<1>) -> !firrtl.uint<1> loc("Misc.scala":210:20)
+    ; CHECK:  %c0_ui1 = firrtl.constant 0 : !firrtl.const.uint<1> loc("Misc.scala":210:20)
+    ; CHECK:  %0 = firrtl.eq %mask_bit_2, %c0_ui1 : (!firrtl.uint<1>, !firrtl.const.uint<1>) -> !firrtl.uint<1> loc("Misc.scala":210:20)
     ; CHECK:  %mask_nbit_2 = firrtl.node interesting_name %0  : !firrtl.uint<1> loc("Misc.scala":210:20)
 
 

@@ -17,7 +17,9 @@ declare_mlir_python_extension(CIRCTBindingsPythonExtension
     CIRCTModule.cpp
     ESIModule.cpp
     HWModule.cpp
+    OMModule.cpp
     MSFTModule.cpp
+    SeqModule.cpp
     SVModule.cpp
   EMBED_CAPI_LINK_LIBS
     CIRCTCAPIComb
@@ -25,11 +27,15 @@ declare_mlir_python_extension(CIRCTBindingsPythonExtension
     CIRCTCAPIMSFT
     CIRCTCAPIHW
     CIRCTCAPIHWArith
+    CIRCTCAPIOM
     CIRCTCAPISeq
     CIRCTCAPISV
     CIRCTCAPIExportVerilog
     CIRCTCAPIFSM
     CIRCTCAPIHandshake
+    CIRCTCAPILTL
+    CIRCTCAPIVerif
+    CIRCTCAPIConversion
     MLIRCAPITransforms
   PRIVATE_LINK_LIBS
     LLVMSupport
@@ -96,6 +102,14 @@ declare_mlir_dialect_python_bindings(
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+  TD_FILE dialects/OMOps.td
+  SOURCES
+    dialects/om.py
+  DIALECT_NAME om)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
   TD_FILE dialects/SeqOps.td
   SOURCES
     dialects/seq.py
@@ -128,6 +142,22 @@ declare_mlir_dialect_python_bindings(
     dialects/hwarith.py
     dialects/_hwarith_ops_ext.py
   DIALECT_NAME hwarith)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+  TD_FILE dialects/LTLOps.td
+  SOURCES
+    dialects/ltl.py
+  DIALECT_NAME ltl)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+  TD_FILE dialects/VerifOps.td
+  SOURCES
+    dialects/verif.py
+  DIALECT_NAME verif)
 
 ################################################################################
 # Build composite binaries

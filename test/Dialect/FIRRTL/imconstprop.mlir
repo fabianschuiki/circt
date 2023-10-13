@@ -553,6 +553,17 @@ firrtl.circuit "SendThroughRWProbe" {
 
 // -----
 
+// Should not crash when there are properties.
+
+// CHECK-LABEL: firrtl.circuit "Properties"
+firrtl.circuit "Properties" {
+  firrtl.module @Properties(in %in : !firrtl.string, out %out : !firrtl.string) {
+    firrtl.propassign %out, %in : !firrtl.string
+  }
+}
+
+// -----
+
 // Verbatim expressions should not be optimized away.
 firrtl.circuit "Verbatim"  {
   firrtl.module @Verbatim() {
@@ -601,4 +612,341 @@ firrtl.circuit "Ordering" {
     firrtl.strictconnect %b, %1 : !firrtl.uint<1>
   }
   // CHECK: firrtl.strictconnect %b, %c0_ui1
+}
+
+// -----
+
+// Checking that plusargs intrinsics are properly marked overdefined in IMCP,
+// see:
+//   - https://github.com/llvm/circt/issues/5722
+//
+// CHECK-LABEL: "Issue5722Test"
+firrtl.circuit "Issue5722Test"  {
+  firrtl.module @Issue5722Test(out %a: !firrtl.uint<1>) {
+    %b = firrtl.wire : !firrtl.uint<1>
+    %0 = firrtl.int.plusargs.test "parg"
+    firrtl.strictconnect %b, %0 : !firrtl.uint<1>
+    // CHECK: firrtl.strictconnect %b, %0
+    firrtl.strictconnect %a, %b : !firrtl.uint<1>
+  }
+}
+
+// CHECK-LABEL: "Issue5722Value"
+firrtl.circuit "Issue5722Value"  {
+  firrtl.module @Issue5722Value(out %a: !firrtl.uint<1>, out %v: !firrtl.uint<32>) {
+    %b = firrtl.wire : !firrtl.uint<1>
+    %c = firrtl.wire : !firrtl.uint<32>
+    %0:2 = firrtl.int.plusargs.value "parg" : !firrtl.uint<32>
+    firrtl.strictconnect %b, %0#0 : !firrtl.uint<1>
+    // CHECK: firrtl.strictconnect %b, %0#0
+    firrtl.strictconnect %c, %0#1 : !firrtl.uint<32>
+    // CHECK: firrtl.strictconnect %c, %0#1
+    firrtl.strictconnect %a, %b : !firrtl.uint<1>
+    firrtl.strictconnect %v, %c : !firrtl.uint<32>
+  }
+}
+
+// -----
+
+// Check const prop of basic properties.
+
+// CHECK-LABEL: "PropPassthruTest"
+firrtl.circuit "PropPassthruTest" {
+  firrtl.module private @Passthru(in %intIn: !firrtl.integer,
+                                  out %intOut: !firrtl.integer,
+                                  in %boolIn: !firrtl.bool,
+                                  out %boolOut: !firrtl.bool,
+                                  in %strIn: !firrtl.string,
+                                  out %strOut: !firrtl.string) {
+    firrtl.propassign %intOut, %intIn : !firrtl.integer
+    firrtl.propassign %boolOut, %boolIn : !firrtl.bool
+    firrtl.propassign %strOut, %strIn : !firrtl.string
+  }
+  firrtl.module @PropPassthruTest(out %intOut: !firrtl.integer,
+                                  out %boolOut: !firrtl.bool,
+                                  out %strOut: !firrtl.string) {
+    // CHECK-DAG: %[[BOOL:.+]] = firrtl.bool true
+    // CHECK-DAG: %[[STRING:.+]] = firrtl.string "hello"
+    // CHECK-DAG: %[[INT:.+]] = firrtl.integer 123
+    %0 = firrtl.bool true
+    %1 = firrtl.string "hello"
+    %2 = firrtl.integer 123
+    %passthru_intIn, %passthru_intOut, %passthru_boolIn, %passthru_boolOut, %passthru_strIn, %passthru_strOut = firrtl.instance passthru @Passthru(in intIn: !firrtl.integer, out intOut: !firrtl.integer, in boolIn: !firrtl.bool, out boolOut: !firrtl.bool, in strIn: !firrtl.string, out strOut: !firrtl.string)
+    firrtl.propassign %passthru_intIn, %2 : !firrtl.integer
+    firrtl.propassign %passthru_strIn, %1 : !firrtl.string
+    firrtl.propassign %passthru_boolIn, %0 : !firrtl.bool
+    // CHECK-DAG: propassign %intOut, %[[INT]]
+    // CHECK-DAG: propassign %strOut, %[[STRING]]
+    // CHECK-DAG: propassign %boolOut, %[[BOOL]]
+    firrtl.propassign %intOut, %passthru_intOut : !firrtl.integer
+    firrtl.propassign %strOut, %passthru_strOut : !firrtl.string
+    firrtl.propassign %boolOut, %passthru_boolOut : !firrtl.bool
+  }
+}
+
+// -----
+// Check assignments into object fields don't cause errors.
+
+// CHECK-LABEL: "ObjectSubfieldConnect"
+firrtl.circuit "ObjectSubfieldConnect" {
+  firrtl.class private @Test(in %in: !firrtl.integer) {
+  }
+  firrtl.module @ObjectSubfieldConnect(in %in: !firrtl.integer) {
+    %0 = firrtl.object @Test(in in: !firrtl.integer)
+    %1 = firrtl.object.subfield %0[in] : !firrtl.class<@Test(in in: !firrtl.integer)>
+    firrtl.propassign %1, %in : !firrtl.integer
+  }
+}
+
+// -----
+// Check assignments of objects themselves are handled.
+
+// CHECK-LABEL: "ObjectConnect"
+firrtl.circuit "ObjectConnect" {
+  firrtl.class private @Test() {}
+  firrtl.module @Passthru(in %in : !firrtl.class<@Test()>,
+                          out %out : !firrtl.class<@Test()>) {
+    firrtl.propassign %out, %in : !firrtl.class<@Test()>
+  }
+  firrtl.module @ObjectConnect(out %out : !firrtl.class<@Test()>) {
+    %c_in, %c_out = firrtl.instance c @Passthru(in in : !firrtl.class<@Test()>,
+                                                out out : !firrtl.class<@Test()>)
+    %obj = firrtl.object @Test()
+    firrtl.propassign %c_in, %obj : !firrtl.class<@Test()>
+    firrtl.propassign %out, %c_out : !firrtl.class<@Test()>
+  }
+}
+
+// -----
+
+// Preserve forceable decl that is dead other than its rwprobe result.
+// CHECK-LABEL: "KeepForceable"
+firrtl.circuit "KeepForceable" {
+  firrtl.module @KeepForceable(out %a: !firrtl.rwprobe<uint<1>>) attributes {convention = #firrtl<convention scalarized>} {
+    %c0_ui1 = firrtl.constant 0 : !firrtl.uint<1>
+    %b_c = firrtl.wire : !firrtl.rwprobe<uint<1>>
+    %d, %d_ref = firrtl.wire forceable : !firrtl.uint<1>, !firrtl.rwprobe<uint<1>>
+    firrtl.strictconnect %d, %c0_ui1 : !firrtl.uint<1>
+    // CHECK-COUNT-2: ref.define
+    firrtl.ref.define %b_c, %d_ref : !firrtl.rwprobe<uint<1>>
+    firrtl.ref.define %a, %b_c : !firrtl.rwprobe<uint<1>>
+  }
+}
+
+// -----
+
+// Fix partly deleting non-hw dataflow.
+// Issue #6076.
+
+// CHECK-LABEL: "WireProbe"
+firrtl.circuit "WireProbe" {
+  // CHECK: module @WireProbe
+  firrtl.module @WireProbe(out %p : !firrtl.probe<uint<5>>) {
+    // CHECK-NEXT: %[[ZERO:.+]] = firrtl.constant 0
+    // CHECK-NEXT: %[[REF:.+]] = firrtl.ref.send %[[ZERO]]
+    // CHECK-NEXT: firrtl.ref.define %p, %[[REF]]
+    // CHECK-NEXT: }
+    %x = firrtl.constant 0: !firrtl.uint<5>
+    %0 = firrtl.ref.send %x : !firrtl.uint<5>
+    %w = firrtl.wire interesting_name : !firrtl.probe<uint<5>>
+    firrtl.ref.define %w, %0: !firrtl.probe<uint<5>>
+    firrtl.ref.define %p, %w : !firrtl.probe<uint<5>>
+  }
+}
+
+// -----
+
+// Also for properties that we const-prop.
+// Drop connections to, and wires, that are not overdefined.
+
+// CHECK-LABEL: firrtl.circuit "WireProp"
+firrtl.circuit "WireProp" {
+  // CHECK-NOT: firrtl.wire
+  firrtl.module @WireProp(out %s : !firrtl.string) {
+    %x = firrtl.string "hello"
+    %w = firrtl.wire : !firrtl.string
+    %w2 = firrtl.wire : !firrtl.string
+    firrtl.propassign %w, %x: !firrtl.string
+    firrtl.propassign %w2, %w: !firrtl.string
+    firrtl.propassign %s, %w : !firrtl.string
+  }
+}
+
+// -----
+
+// Check ability to const-prop through declarations (wires, nodes)
+// with annotations, but keep them around.
+firrtl.circuit "ConstPropAnno" {
+  firrtl.module @ConstPropAnno(out %val : !firrtl.uint<3>,
+                               out %val2 : !firrtl.uint<3>) {
+    // CHECK: %[[ZERO:.+]] = firrtl.constant 0
+    %zero = firrtl.constant 0 : !firrtl.uint<3>
+    // CHECK: %w = firrtl.wire
+    %w = firrtl.wire {annotations = [{class = "circt.test"}]} : !firrtl.uint<3>
+    // CHECK-NOT: firrtl.wire
+    %w2 = firrtl.wire : !firrtl.uint<3>
+    firrtl.strictconnect %w2, %zero : !firrtl.uint<3>
+    firrtl.strictconnect %w, %w2 : !firrtl.uint<3>
+    firrtl.strictconnect %val, %w : !firrtl.uint<3>
+
+    // CHECK: firrtl.node %[[ZERO]]
+    %n = firrtl.node %w2 {annotations = [{class = "circt.test"}]} : !firrtl.uint<3>
+    // CHECK-NOT: firrtl.wire
+    %w3 = firrtl.wire : !firrtl.uint<3>
+    firrtl.strictconnect %w3, %n : !firrtl.uint<3>
+    firrtl.strictconnect %val2, %w3 : !firrtl.uint<3>
+  }
+}
+
+// -----
+
+// RefSubOp: preserve.
+
+// CHECK-LABEL: "RefSubOp"
+firrtl.circuit "RefSubOp" {
+  firrtl.extmodule private @Ext(out p : !firrtl.probe<vector<uint<32>, 31>>)
+  firrtl.module @RefSubOp(out %p : !firrtl.probe<uint<32>>) {
+   // CHECK: firrtl.wire
+   // CHECK: ref.sub
+   // CHECK-COUNT-2: firrtl.ref.define
+   %ext_vec_ref = firrtl.instance e @Ext(out p : !firrtl.probe<vector<uint<32>, 31>>)
+   %w = firrtl.wire { name = "tap" } : !firrtl.probe<uint<32>>
+   %ref = firrtl.ref.sub %ext_vec_ref[5] : !firrtl.probe<vector<uint<32>, 31>>
+   firrtl.ref.define %w, %ref : !firrtl.probe<uint<32>>
+   firrtl.ref.define %p, %w: !firrtl.probe<uint<32>>
+  }
+}
+
+// -----
+
+// RefSubOp: prop.
+
+// CHECK-LABEL: "RefSubOpPropagate"
+firrtl.circuit "RefSubOpPropagate" {
+  firrtl.module private @Child(out %p : !firrtl.probe<vector<uint<32>, 2>>,
+                               out %w0 : !firrtl.probe<uint<32>>,
+                               out %w1 : !firrtl.probe<uint<32>>) {
+    // Vector initialized to 123, 321
+    %w = firrtl.wire : !firrtl.vector<uint<32>, 2>
+    %v0 = firrtl.subindex %w[0] : !firrtl.vector<uint<32>, 2>
+    %v1 = firrtl.subindex %w[1] : !firrtl.vector<uint<32>, 2>
+    %val0 = firrtl.constant 123 : !firrtl.uint<32>
+    %val1 = firrtl.constant 321 : !firrtl.uint<32>
+    firrtl.strictconnect %v0, %val0 : !firrtl.uint<32>
+    firrtl.strictconnect %v1, %val1 : !firrtl.uint<32>
+
+    // Send out probe of entire vector.
+    %vec_ref = firrtl.ref.send %w : !firrtl.vector<uint<32>, 2>
+    firrtl.ref.define %p, %vec_ref : !firrtl.probe<vector<uint<32>, 2>>
+
+    // Send out probe of individual elements.
+    %w0_ref = firrtl.ref.sub %vec_ref[0] : !firrtl.probe<vector<uint<32>, 2>>
+    %w1_ref = firrtl.ref.sub %vec_ref[1] : !firrtl.probe<vector<uint<32>, 2>>
+    firrtl.ref.define %w0, %w0_ref : !firrtl.probe<uint<32>>
+    firrtl.ref.define %w1, %w1_ref : !firrtl.probe<uint<32>>
+  }
+
+   // CHECK: module @RefSubOpPropagate
+  firrtl.module @RefSubOpPropagate(out %p : !firrtl.probe<uint<32>>,
+                                   out %w1_via_p : !firrtl.uint<32>,
+                                   out %w0 : !firrtl.uint<32>,
+                                   out %w1 : !firrtl.uint<32>) {
+   // Constant pool
+   // CHECK-DAG: %[[C123:.+]] = firrtl.constant 123
+   // CHECK-DAG: %[[C321:.+]] = firrtl.constant 321
+   // CHECK-DAG: %[[P321:.+]] = firrtl.ref.send %[[C321]]
+   // CHECK: firrtl.instance
+   %c_vec_ref, %c_w0, %c_w1 = firrtl.instance c @Child(out p : !firrtl.probe<vector<uint<32>, 2>>,
+                                                       out w0 : !firrtl.probe<uint<32>>,
+                                                       out w1 : !firrtl.probe<uint<32>>)
+
+   // 'p' should be probe of second element.
+   // CHECK-NEXT: firrtl.ref.define %p, %[[P321]]
+   %w = firrtl.wire : !firrtl.probe<uint<32>>
+   %ref = firrtl.ref.sub %c_vec_ref[1] : !firrtl.probe<vector<uint<32>, 2>>
+   firrtl.ref.define %w, %ref : !firrtl.probe<uint<32>>
+   firrtl.ref.define %p, %w: !firrtl.probe<uint<32>>
+
+   // CHECK-NEXT: firrtl.strictconnect %w1_via_p, %[[C321]]
+   %p_read = firrtl.ref.resolve %ref : !firrtl.probe<uint<32>>
+   firrtl.strictconnect %w1_via_p, %p_read : !firrtl.uint<32>
+
+   // CHECK-NEXT: firrtl.strictconnect %w0, %[[C123]]
+   // CHECK-NEXT: firrtl.strictconnect %w1, %[[C321]]
+   %w0_read = firrtl.ref.resolve %c_w0 : !firrtl.probe<uint<32>>
+   %w1_read = firrtl.ref.resolve %c_w1 : !firrtl.probe<uint<32>>
+   firrtl.strictconnect %w0, %w0_read : !firrtl.uint<32>
+   firrtl.strictconnect %w1, %w1_read : !firrtl.uint<32>
+   // CHECK-NEXT: }
+  }
+}
+
+// -----
+
+// OMIR annotation should not block removal.
+//   - See: https://github.com/llvm/circt/issues/6199
+//
+// CHECK-LABEL: firrtl.circuit "OMIRRemoval"
+firrtl.circuit "OMIRRemoval" {
+  firrtl.module @OMIRRemoval(
+    out %a: !firrtl.uint<1>,
+    out %b: !firrtl.uint<2>,
+    out %c: !firrtl.uint<3>,
+    out %d: !firrtl.uint<4>
+  ) {
+    %c1_ui1  = firrtl.constant 1  : !firrtl.uint<1>
+    %c3_ui2  = firrtl.constant 3  : !firrtl.uint<2>
+    %c7_ui3  = firrtl.constant 7  : !firrtl.uint<3>
+    %c15_ui4 = firrtl.constant 15 : !firrtl.uint<4>
+
+    // CHECK-NOT: %tmp_0
+    %tmp_0 = firrtl.node %c1_ui1 {
+      annotations = [
+        {
+           class = "freechips.rocketchip.objectmodel.OMIRTracker",
+           id = 0 : i64,
+           type = "OMReferenceTarget"
+        }
+      ]} : !firrtl.uint<1>
+    firrtl.strictconnect %a, %tmp_0 : !firrtl.uint<1>
+
+    // CHECK-NOT: %tmp_1
+    %tmp_1 = firrtl.node %c3_ui2 {
+      annotations = [
+        {
+           class = "freechips.rocketchip.objectmodel.OMIRTracker",
+           id = 1 : i64,
+           type = "OMMemberReferenceTarget"
+        }
+      ]} : !firrtl.uint<2>
+    firrtl.strictconnect %b, %tmp_1 : !firrtl.uint<2>
+
+    // CHECK-NOT: %tmp_2
+    %tmp_2 = firrtl.node %c7_ui3 {
+      annotations = [
+        {
+           class = "freechips.rocketchip.objectmodel.OMIRTracker",
+           id = 3 : i64,
+           type = "OMMemberInstanceTarget"
+        }
+      ]} : !firrtl.uint<3>
+    firrtl.strictconnect %c, %tmp_2 : !firrtl.uint<3>
+
+    // Adding one additional annotation will block removal.
+    //
+    // CHECK: %tmp_3
+    %tmp_3 = firrtl.node %c15_ui4 {
+      annotations = [
+        {
+           class = "freechips.rocketchip.objectmodel.OMIRTracker",
+           id = 4 : i64,
+           type = "OMReferenceTarget"
+        },
+        {
+           class = "circt.test"
+        }
+      ]} : !firrtl.uint<4>
+    // CHECK-NEXT: firrtl.strictconnect %d, %c15_ui4
+    firrtl.strictconnect %d, %tmp_3 : !firrtl.uint<4>
+  }
 }

@@ -1,4 +1,5 @@
 # REQUIRES: bindings_python
+# RUN: %PYTHON% %s
 # RUN: %PYTHON% %s 2> %t | FileCheck %s
 # RUN: cat %t | FileCheck --check-prefix=ERR %s
 
@@ -9,6 +10,12 @@ import circt.ir as ir
 import circt.passmanager
 import sys
 
+# CHECK-LABEL: === pd ===
+# ERR-LABEL:   === pd errors ===
+print("=== pd ===")
+print("=== pd errors ===", file=sys.stderr)
+sys.stderr.flush()
+
 with ir.Context() as ctx, ir.Location.unknown():
   circt.register_dialects(ctx)
   i32 = ir.IntegerType.get_signless(32)
@@ -16,34 +23,28 @@ with ir.Context() as ctx, ir.Location.unknown():
 
   mod = ir.Module.create()
   with ir.InsertionPoint(mod.body):
-    extmod = msft.MSFTModuleExternOp(name='MyExternMod',
-                                     input_ports=[],
-                                     output_ports=[])
-
-    entity_extern = msft.EntityExternOp.create("tag", "extra details")
-
-    op = msft.MSFTModuleOp(name='MyWidget', input_ports=[], output_ports=[])
-    with ir.InsertionPoint(op.add_entry_block()):
-      msft.OutputOp([])
-
-    top = msft.MSFTModuleOp(name='top', input_ports=[], output_ports=[])
-    with ir.InsertionPoint(top.add_entry_block()):
-      msft.OutputOp([])
-
-    msft_mod = msft.MSFTModuleOp(name='msft_mod',
+    extmod = hw.HWModuleExternOp(name='MyExternMod',
                                  input_ports=[],
-                                 output_ports=[],
-                                 parameters=ir.DictAttr.get(
-                                     {"WIDTH": ir.IntegerAttr.get(i32, 8)}))
+                                 output_ports=[])
+
+    op = hw.HWModuleOp(name='MyWidget', input_ports=[], output_ports=[])
+    with ir.InsertionPoint(op.add_entry_block()):
+      hw.OutputOp([])
+
+    top = hw.HWModuleOp(name='top', input_ports=[], output_ports=[])
+    with ir.InsertionPoint(top.add_entry_block()):
+      hw.OutputOp([])
+
+    msft_mod = hw.HWModuleOp(name='msft_mod', input_ports=[], output_ports=[])
     with ir.InsertionPoint(msft_mod.add_entry_block()):
-      msft.OutputOp([])
+      hw.OutputOp([])
 
   with ir.InsertionPoint.at_block_terminator(op.body.blocks[0]):
-    ext_inst = extmod.instantiate("ext1")
+    ext_inst = extmod.instantiate("ext1", sym_name="ext1")
 
   with ir.InsertionPoint.at_block_terminator(top.body.blocks[0]):
-    path = op.instantiate("inst1")
-    minst = msft_mod.instantiate("minst")
+    path = op.instantiate("inst1", sym_name="inst1")
+    minst = msft_mod.instantiate("minst", sym_name="minst")
 
   # CHECK: #msft.physloc<M20K, 2, 6, 1>
   physAttr = msft.PhysLocationAttr.get(msft.M20K, x=2, y=6, num=1)
@@ -61,9 +62,9 @@ with ir.Context() as ctx, ir.Location.unknown():
   print(path)
   # CHECK-NEXT: [#hw.innerNameRef<@top::@inst1>, #hw.innerNameRef<@MyWidget::@ext1>]
 
-  # CHECK: msft.module @MyWidget {} ()
-  # CHECK:   msft.output
-  # CHECK: msft.module @msft_mod {WIDTH = 8 : i32} ()
+  # CHECK: hw.module @MyWidget()
+  # CHECK: hw.module @msft_mod()
+  mod.operation.verify()
   mod.operation.print()
 
   db = msft.PlacementDB(mod)
@@ -108,11 +109,6 @@ with ir.Context() as ctx, ir.Location.unknown():
 
   rc = seeded_pdb.place(dyn_inst, physAttr, "|foo_subpath", ir.Location.current)
   assert rc
-  # Temporarily ditch support for external entities
-  # external_path = ir.ArrayAttr.get(
-  #     [ir.FlatSymbolRefAttr.get(entity_extern.sym_name.value)])
-  # rc = seeded_pdb.add_placement(physAttr2, external_path, "", entity_extern)
-  # assert rc
 
   nearest = seeded_pdb.get_nearest_free_in_column(msft.M20K, 2, 4)
   assert isinstance(nearest, msft.PhysLocationAttr)
@@ -256,11 +252,6 @@ with ir.Context() as ctx, ir.Location.unknown():
   # CHECK:   set_location_assignment M20K_X2_Y6_N1 -to $parent|inst1|ext1|foo_subpath
   print(mod)
   pm = circt.passmanager.PassManager.parse(
-      "builtin.module(msft-lower-instances,lower-msft-to-hw,msft-export-tcl{tops=top})"
-  )
+      "builtin.module(msft-lower-instances,msft-export-tcl{tops=top})")
   pm.run(mod.operation)
   circt.export_verilog(mod, sys.stdout)
-
-  appid1 = msft.AppIDAttr.get("foo", 4)
-  # CHECK: appid1: #msft.appid<"foo"[4]>, foo, 4
-  print(f"appid1: {appid1}, {appid1.name}, {appid1.index}")

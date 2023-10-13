@@ -11,7 +11,7 @@ circuit test:
     input wData: UInt<8>
 
     mem tbMemoryKind1:
-      data-type => UInt<8>
+      data-type => UInt<1>
       depth => 16
       reader => r
       writer => w
@@ -42,7 +42,7 @@ circuit test:
     input wData: UInt<8>
 
     mem dutMemory:
-      data-type => UInt<8>
+      data-type => UInt<2>
       depth => 32
       reader => r
       writer => w
@@ -72,7 +72,7 @@ circuit test:
     input wData: UInt<8>
 
     mem tbMemoryKind1:
-      data-type => UInt<8>
+      data-type => UInt<3>
       depth => 16
       reader => r
       writer => w
@@ -90,7 +90,7 @@ circuit test:
     tbMemoryKind1.w.mask <= wMask
     tbMemoryKind1.w.data <= wData
 
-; CHECK=LABEL: module hier1
+; CHECK-LABEL: module hier1
 ; CHECK:  tbMemoryKind1_0 tbMemoryKind1
 
 
@@ -180,20 +180,20 @@ circuit test:
 ; CHECK-NEXT:   {
 ; CHECK-NEXT:     "module_name": "dutMemory_ext",
 ; CHECK-NEXT:     "depth": 32,
-; CHECK-NEXT:     "width": 8,
+; CHECK-NEXT:     "width": 2,
 ; CHECK-NEXT:     "masked": false,
-; CHECK-NEXT:     "read": true,
-; CHECK-NEXT:     "write": true,
-; CHECK-NEXT:     "readwrite": false,
+; CHECK-NEXT:     "read": 1,
+; CHECK-NEXT:     "write": 1,
+; CHECK-NEXT:     "readwrite": 0,
 ; CHECK-NEXT:     "extra_ports": [],
 ; CHECK-NEXT:     "hierarchy": [
-; CHECK-NEXT:       "dutModule.m.dutMemory.dutMemory_ext"
+; CHECK-NEXT:       "dutModule.hello.dutMemory.dutMemory_ext"
 ; CHECK-NEXT:     ]
 ; CHECK-NEXT:   }
 ; CHECK-NEXT: ]
 
 
 ; CHECK-LABEL: FILE "dutModule.conf"
-; CHECK: name tbMemoryKind1_ext depth 16 width 8 ports write,read
-; CHECK: name dutMemory_ext depth 32 width 8 ports write,read
-; CHECK: name tbMemoryKind1_0_ext depth 16 width 8 ports write,read
+; CHECK: name tbMemoryKind1_ext depth 16 width 1 ports write,read
+; CHECK: name dutMemory_ext depth 32 width 2 ports write,read
+; CHECK: name tbMemoryKind1_0_ext depth 16 width 3 ports write,read

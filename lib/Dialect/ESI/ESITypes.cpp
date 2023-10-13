@@ -22,9 +22,6 @@
 using namespace circt;
 using namespace circt::esi;
 
-#define GET_TYPEDEF_CLASSES
-#include "circt/Dialect/ESI/ESITypes.cpp.inc"
-
 AnyType AnyType::get(MLIRContext *context) { return Base::get(context); }
 
 LogicalResult
@@ -61,7 +58,7 @@ WindowType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
         if (!arrField)
           return emitError() << "cannot specify num items on non-array field "
                              << field.name;
-        if (numItems > arrField.getSize())
+        if (numItems > arrField.getNumElements())
           return emitError() << "num items is larger than array size in field "
                              << field.name;
         if (frame.getMembers().size() != 1)
@@ -118,7 +115,7 @@ hw::UnionType WindowType::getLoweredType() const {
 
         // If the array size is not a multiple of numItems, we need another
         // frame for the left overs.
-        size_t leftOver = array.getSize() % field.getNumItems();
+        size_t leftOver = array.getNumElements() % field.getNumItems();
         if (leftOver) {
           fields.push_back(
               {field.getFieldName(),
@@ -141,9 +138,47 @@ hw::UnionType WindowType::getLoweredType() const {
   return hw::UnionType::get(getContext(), unionFields);
 }
 
+namespace mlir {
+template <>
+struct FieldParser<::BundledChannel, ::BundledChannel> {
+  static FailureOr<::BundledChannel> parse(AsmParser &p) {
+    ChannelType type;
+    std::string name;
+    if (p.parseType(type))
+      return failure();
+    auto dir = FieldParser<::ChannelDirection>::parse(p);
+    if (failed(dir))
+      return failure();
+    if (p.parseKeywordOrString(&name))
+      return failure();
+    return BundledChannel{StringAttr::get(p.getContext(), name), *dir, type};
+  }
+};
+} // namespace mlir
+
+namespace llvm {
+inline ::llvm::raw_ostream &operator<<(::llvm::raw_ostream &p,
+                                       ::BundledChannel channel) {
+  p << channel.type << " " << channel.direction << " " << channel.name;
+  return p;
+}
+} // namespace llvm
+
+#define GET_TYPEDEF_CLASSES
+#include "circt/Dialect/ESI/ESITypes.cpp.inc"
+
 void ESIDialect::registerTypes() {
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "circt/Dialect/ESI/ESITypes.cpp.inc"
       >();
+}
+
+mlir::Type circt::esi::innerType(mlir::Type type) {
+  circt::esi::ChannelType chan =
+      type.dyn_cast_or_null<circt::esi::ChannelType>();
+  if (chan) // Unwrap the channel if it's a channel.
+    type = chan.getInner();
+
+  return type;
 }

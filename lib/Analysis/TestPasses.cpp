@@ -17,10 +17,12 @@
 #include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/Support/Debug.h"
 
 using namespace mlir;
+using namespace mlir::affine;
 using namespace circt::analysis;
 
 //===----------------------------------------------------------------------===//
@@ -53,7 +55,7 @@ void TestDependenceAnalysisPass::runOnOperation() {
     SmallVector<Attribute> deps;
 
     for (auto dep : analysis.getDependences(op)) {
-      if (dep.dependenceType != mlir::DependenceResult::HasDependence)
+      if (dep.dependenceType != DependenceResult::HasDependence)
         continue;
 
       SmallVector<Attribute> comps;

@@ -26,6 +26,7 @@ using namespace seq;
 
 void SeqDialect::initialize() {
   registerTypes();
+  registerAttributes();
 
   // Register operations.
   addOperations<
@@ -47,6 +48,10 @@ Operation *SeqDialect::materializeConstant(OpBuilder &builder, Attribute value,
   if (auto intType = type.dyn_cast<IntegerType>())
     if (auto attrValue = value.dyn_cast<IntegerAttr>())
       return builder.create<hw::ConstantOp>(loc, type, attrValue);
+
+  if (type.isa<ClockType>())
+    if (auto attrValue = value.dyn_cast<ClockConstAttr>())
+      return builder.create<seq::ConstClockOp>(loc, attrValue);
 
   return nullptr;
 }

@@ -1,7 +1,10 @@
 # REQUIRES: esi-cosim
 # RUN: rm -rf %t
 # RUN: %PYTHON% %s %t 2>&1
-# RUN: esi-cosim-runner.py --tmpdir %t --schema %t/hw/schema.capnp %s %t/hw/*.sv
+# ... can't glob *.sv because PyCDE always includes driver.sv, but that's not the
+# top that we want to use. Just delete it.
+# RUN: rm -f %t/hw/driver.sv
+# RUN: esi-cosim-runner.py --no-aux-files --tmpdir %t --schema %t/hw/schema.capnp %s %t/hw/*.sv
 # PY: from esi_ram import run_cosim
 # PY: run_cosim(tmpdir, rpcschemapath, simhostport)
 
@@ -9,6 +12,7 @@ import pycde
 from pycde import (Clock, Input, Module, generator, types)
 from pycde.constructs import Wire
 from pycde import esi
+from pycde.bsp import cosim
 
 import sys
 
@@ -39,7 +43,7 @@ class Mid(Module):
     RamI64x8.write(write_data)
 
 
-class top(Module):
+class Top(Module):
   clk = Clock(types.i1)
   rst = Input(types.i1)
 
@@ -57,7 +61,6 @@ class top(Module):
     RamI64x8.instantiate_builtin("sv_mem",
                                  result_types=[],
                                  inputs=[ports.clk, ports.rst])
-    esi.Cosim(MemComms, ports.clk, ports.rst)
 
 
 def run_cosim(tmpdir=".", schema_path="schema.capnp", rpchostport=None):
@@ -71,25 +74,28 @@ def run_cosim(tmpdir=".", schema_path="schema.capnp", rpchostport=None):
 
   cosim = Cosim(schema_path, rpchostport)
   print(cosim.list())
-  top = esi_sys.top(cosim)
+  top = esi_sys.top(cosim).bsp
+  print(dir(top))
 
   write_cmd = {"address": 2, "data": 42}
-  loopback_result = top.mem_comms.loopback[0](write_cmd)
+  loopback_result = top.loopback[0](write_cmd)
   assert loopback_result == write_cmd
 
-  read_result = top.mem_comms.read[0](2)
+  read_result = top.read[0](2)
   assert read_result == 0
-  read_result = top.mem_comms.read[0](3)
+  read_result = top.read[0](3)
   assert read_result == 0
 
-  top.mem_comms.write[0].write(write_cmd)
-  read_result = top.mem_comms.read[0](2)
+  top.write[0].write(write_cmd)
+  read_result = top.read[0](2)
   assert read_result == 42
-  read_result = top.mem_comms.read[0](3)
+  read_result = top.read[0](3)
   assert read_result == 42
 
 
 if __name__ == "__main__":
-  s = pycde.System([top], name="ESIMem", output_directory=sys.argv[1])
+  s = pycde.System([cosim.CosimBSP(Top)],
+                   name="ESIMem",
+                   output_directory=sys.argv[1])
   s.compile()
   s.package()

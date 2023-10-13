@@ -12,23 +12,30 @@ using namespace circt;
 using namespace hw;
 
 InstanceGraph::InstanceGraph(Operation *operation)
-    : InstanceGraphBase(operation) {
-  for (auto &node : nodes)
-    if (node.getModule().isPublic())
+    : igraph::InstanceGraph(operation) {
+  for (auto &node : nodes) {
+    // Note: we dyn_cast here because we cannot assume that _all_ nodes are
+    // HWModuleLike - there may be cases where hw.module's are mixed with
+    // other ops that implement the igraph::ModuleOpInterface.
+    auto hwModuleLikeNode =
+        dyn_cast<HWModuleLike>(node.getModule().getOperation());
+    if (hwModuleLikeNode && hwModuleLikeNode.isPublic())
       entry.addInstance({}, &node);
+  }
 }
 
-InstanceGraphNode *InstanceGraph::addModule(HWModuleLike module) {
-  auto *node = InstanceGraphBase::addModule(module);
+igraph::InstanceGraphNode *InstanceGraph::addHWModule(HWModuleLike module) {
+  auto *node = igraph::InstanceGraph::addModule(
+      cast<igraph::ModuleOpInterface>(module.getOperation()));
   if (module.isPublic())
     entry.addInstance({}, node);
   return node;
 }
 
-void InstanceGraph::erase(InstanceGraphNode *node) {
+void InstanceGraph::erase(igraph::InstanceGraphNode *node) {
   for (auto *instance : llvm::make_early_inc_range(entry)) {
     if (instance->getTarget() == node)
       instance->erase();
   }
-  InstanceGraphBase::erase(node);
+  igraph::InstanceGraph::erase(node);
 }

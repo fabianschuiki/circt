@@ -18,6 +18,38 @@ class CalyxPrimitive<string mnemonic, list<Trait> traits = []> :
     let skipDefaultBuilders = 1;
 }
 
+/// The n-bit, undef op which only provides the out signal
+def UndefLibOp: CalyxPrimitive<"undefined", []> {
+  let summary = "An undefined signal";
+  let description = [{
+    The "calyx.undef" op defines an undefined signal. An undefined signal can be
+    replaced with any value representable in n-bits.
+    ```mlir
+      // A 32-bit undefined value
+      %undef.out = calyx.undef @undef : i32
+    ```
+  }];
+  let arguments = (ins SymbolNameAttr:$sym_name);
+  let builders = [
+    OpBuilder<(ins "StringRef":$sym_name, "::mlir::TypeRange":$resultTypes), [{
+      $_state.addAttribute(mlir::SymbolTable::getSymbolAttrName(), $_builder.getStringAttr(sym_name));
+      $_state.addTypes(resultTypes);
+    }]>
+  ];
+  let results = (outs AnyType:$out);
+  let extraClassDefinition = [{
+    bool $cppClass::isCombinational() { return false; }
+    SmallVector<StringRef> $cppClass::portNames() { return {"out"}; }
+    SmallVector<Direction> $cppClass::portDirections() { return {Output}; }
+    void $cppClass::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
+      getCellAsmResultNames(setNameFn, *this, this->portNames());
+    }
+    SmallVector<DictionaryAttr> $cppClass::portAttributes() {
+      return {DictionaryAttr::get(getContext())};
+    }
+  }];
+}
+
 /// Trait used to mark certain operations in the Calyx dialect as combinational.
 def Combinational : NativeOpTrait<"Combinational"> {
   let cppNamespace = "::circt::calyx";
@@ -60,7 +92,7 @@ def MemoryOp : CalyxPrimitive<"memory", []> {
     dimension in `$sizes`. The `$width` attribute dictates the width of a single
     element.
 
-    See https://capra.cs.cornell.edu/docs/calyx/libraries/core.html#memories for
+    See https://docs.calyxir.org/libraries/core.html#memories for
     more information.
 
     ```mlir
@@ -113,6 +145,82 @@ def MemoryOp : CalyxPrimitive<"memory", []> {
     Value clk()       { return getResult(getNumDimensions() + 2); }
     Value readData()  { return getResult(getNumDimensions() + 3); }
     Value done()      { return getResult(getNumDimensions() + 4); }
+  }];
+
+  let extraClassDefinition = [{
+    bool $cppClass::isCombinational() { return false; }
+  }];
+}
+
+def SeqMemoryOp : CalyxPrimitive<"seq_mem", []> {
+  let summary = "Defines a memory with sequential read";
+  let description = [{
+    The "calyx.seq_mem" op defines a memory with sequential reads. Memories can
+    have any number of dimensions, as specified by the length of the `$sizes` and
+    `$addrSizes` arrays. The `$addrSizes` specify the bitwidth of each dimension's
+    address, and should be wide enough to address the range of the corresponding
+    dimension in `$sizes`. The `$width` attribute dictates the width of a single
+    element.
+
+    See https://docs.calyxir.org/libraries/core.html#memories for
+    more information.
+
+    ```mlir
+      // A 1-dimensional, 32-bit memory with size dimension 1. Equivalent representation in the native compiler:
+      // `m1 = seq_mem_d1(32, 1, 1)`
+      %m1.addr0, %m1.write_data, %m1.write_en, %m1.write_done, %m1.clk, %m1.read_data, %m1.read_en, %m1.read_done = calyx.memory @m1 <[1] x 32> [1] : i1, i32, i1, i1, i32, i1
+
+      // A 2-dimensional, 8-bit memory with size dimensions 64 x 64. Equivalent representation in the native compiler:
+      // `m2 = seq_mem_d2(8, 64, 64, 6, 6)`
+      %m2.addr0, %m2.addr1, %m2.write_data, %m2.write_en, %m2.write_done, %m2.clk, %m2.read_data, %m2.read_en, %m2.read_done = calyx.memory @m2 <[64, 64] x 8> [6, 6] : i6, i6, i8, i1, i1, i8, i1
+    ```
+  }];
+
+  let arguments = (ins
+    SymbolNameAttr:$sym_name,
+    I64Attr:$width,
+    ArrayAttr:$sizes,
+    ArrayAttr:$addrSizes
+  );
+
+  let results = (outs
+    Variadic<AnySignlessInteger>:$results
+  );
+
+  let assemblyFormat = [{
+    $sym_name ` ` `<` $sizes `x` $width `>` $addrSizes attr-dict `:` qualified(type($results))
+  }];
+
+  let hasVerifier = 1;
+
+  let builders = [
+    OpBuilder<(ins
+      "StringRef":$sym_name,
+      "int64_t":$width,
+      "ArrayRef<int64_t>":$sizes,
+      "ArrayRef<int64_t>":$addrSizes
+    )>
+  ];
+
+  let extraClassDeclaration = [{
+    size_t getNumDimensions() { return getAddrSizes().size(); }
+
+    ValueRange addrPorts() { return getResults().take_front(getNumDimensions()); }
+    Value addrPort(size_t i) {
+      assert(i < getNumDimensions() && "index greater than number of memory address ports.");
+      return getResults()[i];
+    }
+    Value writeData() { return getResult(getNumDimensions()); }
+    Value writeEn()   { return getResult(getNumDimensions() + 1); }
+    Value writeDone()      { return getResult(getNumDimensions() + 2); }
+    Value clk()       { return getResult(getNumDimensions() + 3); }
+    Value readData()  { return getResult(getNumDimensions() + 4); }
+    Value readEn()  { return getResult(getNumDimensions() + 5); }
+    Value readDone()      { return getResult(getNumDimensions() + 6); }
+  }];
+
+  let extraClassDefinition = [{
+    bool $cppClass::isCombinational() { return false; }
   }];
 }
 
@@ -190,6 +298,28 @@ def LshLibOp  : CombinationalArithBinaryLibraryOp<"lsh"> {}
 def AndLibOp  : CombinationalArithBinaryLibraryOp<"and"> {}
 def OrLibOp   : CombinationalArithBinaryLibraryOp<"or"> {}
 def XorLibOp  : CombinationalArithBinaryLibraryOp<"xor"> {}
+
+def MuxLibOp : CalyxLibraryOp<"mux", [
+  Combinational, SameTypeConstraint<"tru", "fal">, SameTypeConstraint<"tru", "out">
+  ]> {
+  let results = (outs I1:$sel, AnyType:$tru, AnyType:$fal, AnyType:$out);
+  let extraClassDefinition = [{
+    SmallVector<StringRef> $cppClass::portNames() {
+      return {"sel", "tru", "fal", "out"};
+    }
+    SmallVector<Direction> $cppClass::portDirections() {
+      return {Input, Input, Input, Output};
+    }
+    void $cppClass::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
+      getCellAsmResultNames(setNameFn, *this, this->portNames());
+    }
+    bool $cppClass::isCombinational() { return true; }
+    SmallVector<DictionaryAttr> $cppClass::portAttributes() {
+      return {DictionaryAttr::get(getContext()), DictionaryAttr::get(getContext()),
+              DictionaryAttr::get(getContext()), DictionaryAttr::get(getContext())};
+    }
+  }];
+}
 
 class ArithBinaryPipeLibraryOp<string mnemonic> : ArithBinaryLibraryOp<mnemonic # "_pipe", [
     SameTypeConstraint<"left", "out">

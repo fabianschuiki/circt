@@ -32,10 +32,13 @@ public:
         .template Case<
             ConstantOp, SpecialConstantOp, AggregateConstantOp, InvalidValueOp,
             SubfieldOp, SubindexOp, SubaccessOp, IsTagOp, SubtagOp,
-            BundleCreateOp, VectorCreateOp, MultibitMuxOp, TagExtractOp,
+            BundleCreateOp, VectorCreateOp, FEnumCreateOp, MultibitMuxOp,
+            TagExtractOp, OpenSubfieldOp, OpenSubindexOp, ObjectSubfieldOp,
             // Arithmetic and Logical Binary Primitives.
             AddPrimOp, SubPrimOp, MulPrimOp, DivPrimOp, RemPrimOp, AndPrimOp,
             OrPrimOp, XorPrimOp,
+            // Elementwise operations,
+            ElementwiseOrPrimOp, ElementwiseAndPrimOp, ElementwiseXorPrimOp,
             // Comparisons.
             LEQPrimOp, LTPrimOp, GEQPrimOp, GTPrimOp, EQPrimOp, NEQPrimOp,
             // Misc Binary Primitives.
@@ -45,14 +48,23 @@ public:
             CvtPrimOp, NegPrimOp, NotPrimOp, AndRPrimOp, OrRPrimOp, XorRPrimOp,
             // Intrinsic Expressions.
             IsXIntrinsicOp, PlusArgsValueIntrinsicOp, PlusArgsTestIntrinsicOp,
-            SizeOfIntrinsicOp,
+            SizeOfIntrinsicOp, ClockGateIntrinsicOp, LTLAndIntrinsicOp,
+            LTLOrIntrinsicOp, LTLDelayIntrinsicOp, LTLConcatIntrinsicOp,
+            LTLNotIntrinsicOp, LTLImplicationIntrinsicOp,
+            LTLEventuallyIntrinsicOp, LTLClockIntrinsicOp,
+            LTLDisableIntrinsicOp, Mux2CellIntrinsicOp, Mux4CellIntrinsicOp,
+            HasBeenResetIntrinsicOp,
             // Miscellaneous.
             BitsPrimOp, HeadPrimOp, MuxPrimOp, PadPrimOp, ShlPrimOp, ShrPrimOp,
             TailPrimOp, VerbatimExprOp, HWStructCastOp, BitCastOp, RefSendOp,
-            RefResolveOp, RefSubOp,
+            RefResolveOp, RefSubOp, RWProbeOp, XMRRefOp, XMRDerefOp,
             // Casts to deal with weird stuff
-            UninferredResetCastOp, UninferredWidthCastOp,
-            mlir::UnrealizedConversionCastOp>([&](auto expr) -> ResultType {
+            UninferredResetCastOp, ConstCastOp, RefCastOp,
+            mlir::UnrealizedConversionCastOp,
+            // Property expressions.
+            StringConstantOp, FIntegerConstantOp, BoolConstantOp,
+            DoubleConstantOp, ListCreateOp, MapCreateOp, UnresolvedPathOp,
+            PathOp>([&](auto expr) -> ResultType {
           return thisCast->visitExpr(expr, args...);
         })
         .Default([&](auto expr) -> ResultType {
@@ -96,6 +108,7 @@ public:
   HANDLE(AggregateConstantOp, Unhandled);
   HANDLE(BundleCreateOp, Unhandled);
   HANDLE(VectorCreateOp, Unhandled);
+  HANDLE(FEnumCreateOp, Unhandled);
   HANDLE(SubfieldOp, Unhandled);
   HANDLE(SubindexOp, Unhandled);
   HANDLE(SubaccessOp, Unhandled);
@@ -103,6 +116,9 @@ public:
   HANDLE(SubtagOp, Unhandled);
   HANDLE(TagExtractOp, Unhandled);
   HANDLE(MultibitMuxOp, Unhandled);
+  HANDLE(OpenSubfieldOp, Unhandled);
+  HANDLE(OpenSubindexOp, Unhandled);
+  HANDLE(ObjectSubfieldOp, Unhandled);
 
   // Arithmetic and Logical Binary Primitives.
   HANDLE(AddPrimOp, Binary);
@@ -140,11 +156,28 @@ public:
   HANDLE(OrRPrimOp, Unary);
   HANDLE(XorRPrimOp, Unary);
 
+  HANDLE(ElementwiseOrPrimOp, Unhandled);
+  HANDLE(ElementwiseAndPrimOp, Unhandled);
+  HANDLE(ElementwiseXorPrimOp, Unhandled);
+
   // Intrinsic Expr.
   HANDLE(IsXIntrinsicOp, Unhandled);
   HANDLE(PlusArgsValueIntrinsicOp, Unhandled);
   HANDLE(PlusArgsTestIntrinsicOp, Unhandled);
   HANDLE(SizeOfIntrinsicOp, Unhandled);
+  HANDLE(ClockGateIntrinsicOp, Unhandled);
+  HANDLE(LTLAndIntrinsicOp, Unhandled);
+  HANDLE(LTLOrIntrinsicOp, Unhandled);
+  HANDLE(LTLDelayIntrinsicOp, Unhandled);
+  HANDLE(LTLConcatIntrinsicOp, Unhandled);
+  HANDLE(LTLNotIntrinsicOp, Unhandled);
+  HANDLE(LTLImplicationIntrinsicOp, Unhandled);
+  HANDLE(LTLEventuallyIntrinsicOp, Unhandled);
+  HANDLE(LTLClockIntrinsicOp, Unhandled);
+  HANDLE(LTLDisableIntrinsicOp, Unhandled);
+  HANDLE(Mux4CellIntrinsicOp, Unhandled);
+  HANDLE(Mux2CellIntrinsicOp, Unhandled);
+  HANDLE(HasBeenResetIntrinsicOp, Unhandled);
 
   // Miscellaneous.
   HANDLE(BitsPrimOp, Unhandled);
@@ -159,13 +192,27 @@ public:
   HANDLE(RefSendOp, Unhandled);
   HANDLE(RefResolveOp, Unhandled);
   HANDLE(RefSubOp, Unhandled);
+  HANDLE(RWProbeOp, Unhandled);
+  HANDLE(XMRRefOp, Unhandled);
+  HANDLE(XMRDerefOp, Unhandled);
 
   // Conversions.
   HANDLE(HWStructCastOp, Unhandled);
   HANDLE(UninferredResetCastOp, Unhandled);
-  HANDLE(UninferredWidthCastOp, Unhandled);
+  HANDLE(ConstCastOp, Unhandled);
   HANDLE(mlir::UnrealizedConversionCastOp, Unhandled);
   HANDLE(BitCastOp, Unhandled);
+  HANDLE(RefCastOp, Unhandled);
+
+  // Property expressions.
+  HANDLE(StringConstantOp, Unhandled);
+  HANDLE(FIntegerConstantOp, Unhandled);
+  HANDLE(BoolConstantOp, Unhandled);
+  HANDLE(DoubleConstantOp, Unhandled);
+  HANDLE(ListCreateOp, Unhandled);
+  HANDLE(MapCreateOp, Unhandled);
+  HANDLE(PathOp, Unhandled);
+  HANDLE(UnresolvedPathOp, Unhandled);
 #undef HANDLE
 };
 
@@ -179,8 +226,10 @@ public:
     return TypeSwitch<Operation *, ResultType>(op)
         .template Case<AttachOp, ConnectOp, StrictConnectOp, RefDefineOp,
                        ForceOp, PrintFOp, SkipOp, StopOp, WhenOp, AssertOp,
-                       AssumeOp, CoverOp, ProbeOp, RefForceOp,
-                       RefForceInitialOp, RefReleaseOp, RefReleaseInitialOp>(
+                       AssumeOp, CoverOp, PropAssignOp, RefForceOp,
+                       RefForceInitialOp, RefReleaseOp, RefReleaseInitialOp,
+                       VerifAssertIntrinsicOp, VerifAssumeIntrinsicOp,
+                       VerifCoverIntrinsicOp, GroupOp>(
             [&](auto opNode) -> ResultType {
               return thisCast->visitStmt(opNode, args...);
             })
@@ -218,11 +267,15 @@ public:
   HANDLE(AssertOp);
   HANDLE(AssumeOp);
   HANDLE(CoverOp);
-  HANDLE(ProbeOp);
+  HANDLE(PropAssignOp);
   HANDLE(RefForceOp);
   HANDLE(RefForceInitialOp);
   HANDLE(RefReleaseOp);
   HANDLE(RefReleaseInitialOp);
+  HANDLE(VerifAssertIntrinsicOp);
+  HANDLE(VerifAssumeIntrinsicOp);
+  HANDLE(VerifCoverIntrinsicOp);
+  HANDLE(GroupOp);
 
 #undef HANDLE
 };
@@ -235,8 +288,8 @@ public:
   ResultType dispatchDeclVisitor(Operation *op, ExtraArgs... args) {
     auto *thisCast = static_cast<ConcreteType *>(this);
     return TypeSwitch<Operation *, ResultType>(op)
-        .template Case<InstanceOp, MemOp, NodeOp, RegOp, RegResetOp, WireOp,
-                       VerbatimWireOp>([&](auto opNode) -> ResultType {
+        .template Case<InstanceOp, ObjectOp, MemOp, NodeOp, RegOp, RegResetOp,
+                       WireOp, VerbatimWireOp>([&](auto opNode) -> ResultType {
           return thisCast->visitDecl(opNode, args...);
         })
         .Default([&](auto expr) -> ResultType {
@@ -262,6 +315,7 @@ public:
   }
 
   HANDLE(InstanceOp);
+  HANDLE(ObjectOp);
   HANDLE(MemOp);
   HANDLE(NodeOp);
   HANDLE(RegOp);

@@ -6,10 +6,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetails.h"
+#include "circt/Dialect/Arc/ArcOps.h"
+#include "circt/Dialect/Arc/ArcPasses.h"
+#include "mlir/IR/ImplicitLocOpBuilder.h"
+#include "mlir/Pass/Pass.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "arc-allocate-state"
+
+namespace circt {
+namespace arc {
+#define GEN_PASS_DEF_ALLOCATESTATE
+#include "circt/Dialect/Arc/ArcPasses.h.inc"
+} // namespace arc
+} // namespace circt
 
 using namespace mlir;
 using namespace circt;
@@ -22,7 +32,8 @@ using llvm::SmallMapVector;
 //===----------------------------------------------------------------------===//
 
 namespace {
-struct AllocateStatePass : public AllocateStateBase<AllocateStatePass> {
+struct AllocateStatePass
+    : public arc::impl::AllocateStateBase<AllocateStatePass> {
   void runOnOperation() override;
   void allocateBlock(Block *block);
   void allocateOps(Value storage, Block *block, ArrayRef<Operation *> ops);
@@ -78,8 +89,7 @@ void AllocateStatePass::allocateOps(Value storage, Block *block,
     if (isa<AllocStateOp, RootInputOp, RootOutputOp>(op)) {
       auto result = op->getResult(0);
       auto storage = op->getOperand(0);
-      auto intType = result.getType().cast<StateType>().getType();
-      unsigned numBytes = (intType.getWidth() + 7) / 8;
+      unsigned numBytes = result.getType().cast<StateType>().getByteWidth();
       auto offset = builder.getI32IntegerAttr(allocBytes(numBytes));
       op->setAttr("offset", offset);
       gettersToCreate.emplace_back(result, storage, offset);
@@ -88,17 +98,11 @@ void AllocateStatePass::allocateOps(Value storage, Block *block,
 
     if (auto memOp = dyn_cast<AllocMemoryOp>(op)) {
       auto memType = memOp.getType();
-      auto intType = memType.getWordType();
-      unsigned stride = (intType.getWidth() + 7) / 8;
-      stride =
-          llvm::alignToPowerOf2(stride, llvm::bit_ceil(std::min(stride, 8U)));
+      unsigned stride = memType.getStride();
       unsigned numBytes = memType.getNumWords() * stride;
       auto offset = builder.getI32IntegerAttr(allocBytes(numBytes));
       op->setAttr("offset", offset);
       op->setAttr("stride", builder.getI32IntegerAttr(stride));
-      memOp.getResult().setType(MemoryType::get(memOp.getContext(),
-                                                memType.getNumWords(),
-                                                memType.getWordType(), stride));
       gettersToCreate.emplace_back(memOp, memOp.getStorage(), offset);
       continue;
     }
@@ -116,6 +120,10 @@ void AllocateStatePass::allocateOps(Value storage, Block *block,
   }
 
   // For every user of the alloc op, create a local `StorageGetOp`.
+  // First, create an ordering of operations to avoid a very expensive
+  // combination of isBeforeInBlock and moveBefore calls (which can be O(n²))
+  DenseMap<Operation *, unsigned> opOrder;
+  block->walk([&](Operation *op) { opOrder.insert({op, opOrder.size()}); });
   SmallVector<StorageGetOp> getters;
   for (auto [result, storage, offset] : gettersToCreate) {
     SmallDenseMap<Block *, StorageGetOp> getterForBlock;
@@ -123,18 +131,16 @@ void AllocateStatePass::allocateOps(Value storage, Block *block,
       auto &getter = getterForBlock[user->getBlock()];
       // Create a local getter in front of each user, except for
       // `AllocStorageOp`s, for which we create a block-wider accessor.
+      auto userOrder = opOrder.lookup(user);
       if (!getter || !result.getDefiningOp<AllocStorageOp>()) {
         ImplicitLocOpBuilder builder(result.getLoc(), user);
         getter =
             builder.create<StorageGetOp>(result.getType(), storage, offset);
         getters.push_back(getter);
-      } else if (user->isBeforeInBlock(getter)) {
-        // TODO: This is a very expensive operation since us inserting
-        // operations makes `isBeforeInBlock` re-enumerate the entire block
-        // every single time. This doesn't happen often in practice since there
-        // are relatively few `AllocStorageOp`s, but we should improve this in a
-        // similar fashion as we did in the `LowerStates` pass.
+        opOrder[getter] = userOrder;
+      } else if (userOrder < opOrder.lookup(getter)) {
         getter->moveBefore(user);
+        opOrder[getter] = userOrder;
       }
       user->replaceUsesOfWith(result, getter);
     }

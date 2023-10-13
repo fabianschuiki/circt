@@ -11,34 +11,47 @@
 
 #include "mlir/Pass/Pass.h"
 #include <memory>
+#include <optional>
 
 namespace mlir {
 class Pass;
 } // namespace mlir
 
+#include "circt/Dialect/Arc/ArcPassesEnums.h.inc"
+
 namespace circt {
 namespace arc {
 
+#define GEN_PASS_DECL
+#include "circt/Dialect/Arc/ArcPasses.h.inc"
+
 std::unique_ptr<mlir::Pass>
-createAddTapsPass(llvm::Optional<bool> tapPorts = {},
-                  llvm::Optional<bool> tapWires = {});
+createAddTapsPass(std::optional<bool> tapPorts = {},
+                  std::optional<bool> tapWires = {},
+                  std::optional<bool> tapNamedValues = {});
 std::unique_ptr<mlir::Pass> createAllocateStatePass();
+std::unique_ptr<mlir::Pass> createArcCanonicalizerPass();
 std::unique_ptr<mlir::Pass> createDedupPass();
-std::unique_ptr<mlir::Pass> createInferMemoriesPass();
+std::unique_ptr<mlir::Pass> createGroupResetsAndEnablesPass();
+std::unique_ptr<mlir::Pass>
+createInferMemoriesPass(std::optional<bool> tapPorts = {});
 std::unique_ptr<mlir::Pass> createInferStatePropertiesPass();
 std::unique_ptr<mlir::Pass> createInlineArcsPass();
 std::unique_ptr<mlir::Pass> createInlineModulesPass();
+std::unique_ptr<mlir::Pass> createIsolateClocksPass();
+std::unique_ptr<mlir::Pass> createLatencyRetimingPass();
 std::unique_ptr<mlir::Pass> createLegalizeStateUpdatePass();
+std::unique_ptr<mlir::Pass> createLowerArcsToFuncsPass();
 std::unique_ptr<mlir::Pass> createLowerClocksToFuncsPass();
 std::unique_ptr<mlir::Pass> createLowerLUTPass();
 std::unique_ptr<mlir::Pass> createLowerStatePass();
+std::unique_ptr<mlir::Pass> createLowerVectorizationsPass(
+    LowerVectorizationsModeEnum mode = LowerVectorizationsModeEnum::Full);
 std::unique_ptr<mlir::Pass> createMakeTablesPass();
 std::unique_ptr<mlir::Pass> createMuxToControlFlowPass();
 std::unique_ptr<mlir::Pass>
 createPrintStateInfoPass(llvm::StringRef stateFile = "");
-std::unique_ptr<mlir::Pass> createRemoveUnusedArcArgumentsPass();
 std::unique_ptr<mlir::Pass> createSimplifyVariadicOpsPass();
-std::unique_ptr<mlir::Pass> createSinkInputsPass();
 std::unique_ptr<mlir::Pass> createSplitLoopsPass();
 std::unique_ptr<mlir::Pass> createStripSVPass();
 

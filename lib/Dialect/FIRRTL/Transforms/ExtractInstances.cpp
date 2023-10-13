@@ -22,6 +22,7 @@
 #include "circt/Dialect/FIRRTL/Passes.h"
 #include "circt/Dialect/HW/HWAttributes.h"
 #include "circt/Dialect/HW/HWDialect.h"
+#include "circt/Dialect/HW/InnerSymbolNamespace.h"
 #include "circt/Dialect/SV/SVOps.h"
 #include "circt/Support/Path.h"
 #include "mlir/IR/Attributes.h"
@@ -66,19 +67,15 @@ struct ExtractInstancesPass
   void createTraceFiles();
 
   /// Get the cached namespace for a module.
-  ModuleNamespace &getModuleNamespace(FModuleLike module) {
-    auto it = moduleNamespaces.find(module);
-    if (it != moduleNamespaces.end())
-      return it->second;
-    return moduleNamespaces.try_emplace(module, ModuleNamespace(module))
-        .first->second;
+  hw::InnerSymbolNamespace &getModuleNamespace(FModuleLike module) {
+    return moduleNamespaces.try_emplace(module, module).first->second;
   }
 
   /// Obtain an inner reference to an operation, possibly adding an `inner_sym`
   /// to that operation.
   InnerRefAttr getInnerRefTo(Operation *op) {
-    return ::getInnerRefTo(op, "extraction_sym",
-                           [&](FModuleOp mod) -> ModuleNamespace & {
+    return ::getInnerRefTo(op,
+                           [&](FModuleLike mod) -> hw::InnerSymbolNamespace & {
                              return getModuleNamespace(mod);
                            });
   }
@@ -138,7 +135,7 @@ struct ExtractInstancesPass
   /// The current circuit namespace valid within the call to `runOnOperation`.
   CircuitNamespace circuitNamespace;
   /// Cached module namespaces.
-  DenseMap<Operation *, ModuleNamespace> moduleNamespaces;
+  DenseMap<Operation *, hw::InnerSymbolNamespace> moduleNamespaces;
 };
 } // end anonymous namespace
 
@@ -262,7 +259,7 @@ void ExtractInstancesPass::collectAnnos() {
     AnnotationSet::removeAnnotations(module, [&](Annotation anno) {
       if (anno.isClass(dutAnnoClass)) {
         LLVM_DEBUG(llvm::dbgs()
-                   << "Marking DUT `" << module.moduleName() << "`\n");
+                   << "Marking DUT `" << module.getModuleName() << "`\n");
         dutRootModules.insert(module);
         dutModules.insert(module);
         if (auto prefix = anno.getMember<StringAttr>("prefix"))
@@ -271,7 +268,7 @@ void ExtractInstancesPass::collectAnnos() {
       }
       if (!isAnnoInteresting(anno))
         return false;
-      LLVM_DEBUG(llvm::dbgs() << "Annotated module `" << module.moduleName()
+      LLVM_DEBUG(llvm::dbgs() << "Annotated module `" << module.getModuleName()
                               << "`:\n  " << anno.getDict() << "\n");
       annotatedModules[module].push_back(anno);
       return true;
@@ -322,7 +319,8 @@ void ExtractInstancesPass::collectAnnos() {
   LLVM_DEBUG(llvm::dbgs() << "Marking DUT hierarchy\n");
   SmallVector<InstanceGraphNode *> worklist;
   for (Operation *op : dutModules)
-    worklist.push_back(instanceGraph->lookup(cast<hw::HWModuleLike>(op)));
+    worklist.push_back(
+        instanceGraph->lookup(cast<igraph::ModuleOpInterface>(op)));
   while (!worklist.empty()) {
     auto *module = worklist.pop_back_val();
     dutModuleNames.insert(module->getModule().getModuleNameAttr());
@@ -356,13 +354,12 @@ void ExtractInstancesPass::collectAnnos() {
       info.prefix = "clock_gate"; // TODO: Don't hardcode this
       info.wrapperModule = clkgateWrapperModule;
       info.stopAtDUT = !info.wrapperModule.empty();
-      for (auto *instRecord :
-           instanceGraph->lookup(cast<hw::HWModuleLike>(*module))->uses()) {
+      for (auto *instRecord : instanceGraph->lookup(module)->uses()) {
         if (auto inst = dyn_cast<InstanceOp>(*instRecord->getInstance())) {
           LLVM_DEBUG(llvm::dbgs()
                      << "- Marking `"
-                     << inst->getParentOfType<FModuleLike>().moduleName() << "."
-                     << inst.getName() << "`\n");
+                     << inst->getParentOfType<FModuleLike>().getModuleName()
+                     << "." << inst.getName() << "`\n");
           extractionWorklist.push_back({inst, info});
         }
       }
@@ -397,13 +394,12 @@ void ExtractInstancesPass::collectAnnos() {
       info.prefix = "mem_wiring"; // TODO: Don't hardcode this
       info.wrapperModule = memoryWrapperModule;
       info.stopAtDUT = !info.wrapperModule.empty();
-      for (auto *instRecord :
-           instanceGraph->lookup(cast<hw::HWModuleLike>(*module))->uses()) {
+      for (auto *instRecord : instanceGraph->lookup(module)->uses()) {
         if (auto inst = dyn_cast<InstanceOp>(*instRecord->getInstance())) {
           LLVM_DEBUG(llvm::dbgs()
                      << "- Marking `"
-                     << inst->getParentOfType<FModuleLike>().moduleName() << "."
-                     << inst.getName() << "`\n");
+                     << inst->getParentOfType<FModuleLike>().getModuleName()
+                     << "." << inst.getName() << "`\n");
           extractionWorklist.push_back({inst, info});
         }
       }
@@ -482,7 +478,7 @@ void ExtractInstancesPass::extractInstances() {
   // Keep track of where the instance was originally.
   for (auto &[inst, info] : extractionWorklist)
     originalInstanceParents[inst] =
-        inst->getParentOfType<FModuleLike>().moduleNameAttr();
+        inst->getParentOfType<FModuleLike>().getModuleNameAttr();
 
   while (!extractionWorklist.empty()) {
     InstanceOp inst;
@@ -538,7 +534,7 @@ void ExtractInstancesPass::extractInstances() {
           prefix.empty() ? Twine(name) : Twine(prefix) + "_" + name);
 
       PortInfo newPort{nameAttr,
-                       inst.getResult(portIdx).getType().cast<FIRRTLType>(),
+                       type_cast<FIRRTLType>(inst.getResult(portIdx).getType()),
                        direction::flip(inst.getPortDirection(portIdx))};
       newPort.loc = inst.getResult(portIdx).getLoc();
       newPorts.push_back({numParentPorts, newPort});
@@ -587,7 +583,7 @@ void ExtractInstancesPass::extractInstances() {
     // the instances of the parent module, and wire the instance ports up to
     // the newly added parent module ports.
     auto *instParentNode =
-        instanceGraph->lookup(cast<hw::HWModuleLike>(*parent));
+        instanceGraph->lookup(cast<igraph::ModuleOpInterface>(*parent));
     for (auto *instRecord : instParentNode->uses()) {
       auto oldParentInst = cast<InstanceOp>(*instRecord->getInstance());
       auto newParent = oldParentInst->getParentOfType<FModuleLike>();
@@ -678,9 +674,9 @@ void ExtractInstancesPass::extractInstances() {
         // module is multiply instantiated. In that case, we only move over NLAs
         // that actually affect the instance through the new parent module.
         if (nlaIdx > 0) {
-          auto innerRef = nlaPath[nlaIdx - 1].dyn_cast<InnerRefAttr>();
+          auto innerRef = dyn_cast<InnerRefAttr>(nlaPath[nlaIdx - 1]);
           if (innerRef &&
-              !(innerRef.getModule() == newParent.moduleNameAttr() &&
+              !(innerRef.getModule() == newParent.getModuleNameAttr() &&
                 innerRef.getName() == getInnerSymName(newParentInst))) {
             LLVM_DEBUG(llvm::dbgs()
                        << "    - Ignored since NLA parent " << innerRef
@@ -703,11 +699,11 @@ void ExtractInstancesPass::extractInstances() {
         // was rooted at.
         if (nlaIdx == 0) {
           LLVM_DEBUG(llvm::dbgs() << "    - Re-rooting " << nlaPath[0] << "\n");
-          assert(nlaPath[0].isa<InnerRefAttr>() &&
+          assert(isa<InnerRefAttr>(nlaPath[0]) &&
                  "head of hierpath must be an InnerRefAttr");
           nlaPath[0] =
-              InnerRefAttr::get(newParent.moduleNameAttr(),
-                                nlaPath[0].cast<InnerRefAttr>().getName());
+              InnerRefAttr::get(newParent.getModuleNameAttr(),
+                                cast<InnerRefAttr>(nlaPath[0]).getName());
 
           if (instParentNode->hasOneUse()) {
             // Simply update the existing NLA since our parent is only
@@ -771,9 +767,9 @@ void ExtractInstancesPass::extractInstances() {
         // since we know that `nlaIdx` is a `InnerRefAttr`, we'll modify
         // `OldParent::BB` to be `NewParent::BB` and delete `NewParent::X`.
         StringAttr parentName =
-            nlaPath[nlaIdx - 1].cast<InnerRefAttr>().getModule();
+            cast<InnerRefAttr>(nlaPath[nlaIdx - 1]).getModule();
         Attribute newRef;
-        if (nlaPath[nlaIdx].isa<InnerRefAttr>())
+        if (isa<InnerRefAttr>(nlaPath[nlaIdx]))
           newRef = InnerRefAttr::get(parentName, getInnerSymName(newInst));
         else
           newRef = FlatSymbolRefAttr::get(parentName);
@@ -783,7 +779,7 @@ void ExtractInstancesPass::extractInstances() {
         nlaPath[nlaIdx] = newRef;
         nlaPath.erase(nlaPath.begin() + nlaIdx - 1);
 
-        if (newRef.isa<FlatSymbolRefAttr>()) {
+        if (isa<FlatSymbolRefAttr>(newRef)) {
           // Since the original NLA ended at the instance's parent module, there
           // is no guarantee that the instance is the sole user of the NLA (as
           // opposed to the original NLA explicitly naming the instance). Create
@@ -869,7 +865,8 @@ void ExtractInstancesPass::groupInstances() {
     OpBuilder builder(parentOp);
 
     // Uniquify the wrapper name.
-    wrapperName = circuitNamespace.newName(wrapperName);
+    auto wrapperModuleName = builder.getStringAttr(
+        circuitNamespace.newName(dutPrefix + wrapperName));
     auto wrapperInstName =
         builder.getStringAttr(getModuleNamespace(parent).newName(wrapperName));
 
@@ -887,7 +884,7 @@ void ExtractInstancesPass::groupInstances() {
         auto nameAttr = builder.getStringAttr(
             prefix.empty() ? Twine(name) : Twine(prefix) + "_" + name);
         PortInfo port{nameAttr,
-                      inst.getResult(portIdx).getType().cast<FIRRTLType>(),
+                      type_cast<FIRRTLType>(inst.getResult(portIdx).getType()),
                       inst.getPortDirection(portIdx)};
         port.loc = inst.getResult(portIdx).getLoc();
         ports.push_back(port);
@@ -921,14 +918,13 @@ void ExtractInstancesPass::groupInstances() {
 
         // The relevant part of the NLA is of the form `Top::bb`, which we want
         // to expand to `Top::wrapperInst` and `Wrapper::bb`.
-        auto wrapperNameAttr = builder.getStringAttr(wrapperName);
         auto ref1 =
             InnerRefAttr::get(parent.getModuleNameAttr(), wrapperInstName);
         Attribute ref2;
-        if (auto innerRef = nlaPath[nlaIdx].dyn_cast<InnerRefAttr>())
-          ref2 = InnerRefAttr::get(wrapperNameAttr, innerRef.getName());
+        if (auto innerRef = dyn_cast<InnerRefAttr>(nlaPath[nlaIdx]))
+          ref2 = InnerRefAttr::get(wrapperModuleName, innerRef.getName());
         else
-          ref2 = FlatSymbolRefAttr::get(wrapperNameAttr);
+          ref2 = FlatSymbolRefAttr::get(wrapperModuleName);
         LLVM_DEBUG(llvm::dbgs() << "    - Expanding " << nlaPath[nlaIdx]
                                 << " to (" << ref1 << ", " << ref2 << ")\n");
         nlaPath[nlaIdx] = ref1;
@@ -939,13 +935,13 @@ void ExtractInstancesPass::groupInstances() {
         nla.setNamepathAttr(builder.getArrayAttr(nlaPath));
         LLVM_DEBUG(llvm::dbgs() << "    - Modified to " << nla << "\n");
         // Add the NLA to the wrapper module.
-        nlaTable.addNLAtoModule(nla, wrapperNameAttr);
+        nlaTable.addNLAtoModule(nla, wrapperModuleName);
       }
     }
 
     // Create the wrapper module.
     auto wrapper = builder.create<FModuleOp>(
-        builder.getUnknownLoc(), builder.getStringAttr(dutPrefix + wrapperName),
+        builder.getUnknownLoc(), wrapperModuleName,
         ConventionAttr::get(builder.getContext(), Convention::Internal), ports);
     SymbolTable::setSymbolVisibility(wrapper, SymbolTable::Visibility::Private);
 

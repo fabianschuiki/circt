@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "circt/Dialect/OM/OMDialect.h"
+#include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/OM/OMOps.h"
 
 #include "circt/Dialect/OM/OMDialect.cpp.inc"
@@ -22,4 +23,8 @@ void circt::om::OMDialect::initialize() {
       >();
 
   registerTypes();
+  registerAttributes();
 }
+
+// Provide implementations for the enums we use.
+#include "circt/Dialect/OM/OMEnums.cpp.inc"

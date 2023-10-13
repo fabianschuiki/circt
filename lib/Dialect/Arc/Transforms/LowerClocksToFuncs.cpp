@@ -6,11 +6,21 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetails.h"
+#include "circt/Dialect/Arc/ArcOps.h"
+#include "circt/Dialect/Arc/ArcPasses.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Pass/Pass.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "arc-lower-clocks-to-funcs"
+
+namespace circt {
+namespace arc {
+#define GEN_PASS_DEF_LOWERCLOCKSTOFUNCS
+#include "circt/Dialect/Arc/ArcPasses.h.inc"
+} // namespace arc
+} // namespace circt
 
 using namespace mlir;
 using namespace circt;
@@ -24,7 +34,7 @@ using mlir::OpTrait::ConstantLike;
 
 namespace {
 struct LowerClocksToFuncsPass
-    : public LowerClocksToFuncsBase<LowerClocksToFuncsPass> {
+    : public arc::impl::LowerClocksToFuncsBase<LowerClocksToFuncsPass> {
   LowerClocksToFuncsPass() = default;
   LowerClocksToFuncsPass(const LowerClocksToFuncsPass &pass)
       : LowerClocksToFuncsPass() {}
@@ -104,8 +114,16 @@ LogicalResult LowerClocksToFuncsPass::lowerClock(Operation *clockOp,
 
   // Create a call to the function within the model.
   builder.setInsertionPoint(clockOp);
-  builder.create<func::CallOp>(clockOp->getLoc(), funcOp,
-                               ValueRange{modelStorageArg});
+  if (auto treeOp = dyn_cast<ClockTreeOp>(clockOp)) {
+    auto ifOp =
+        builder.create<scf::IfOp>(clockOp->getLoc(), treeOp.getClock(), false);
+    auto builder = ifOp.getThenBodyBuilder();
+    builder.create<func::CallOp>(clockOp->getLoc(), funcOp,
+                                 ValueRange{modelStorageArg});
+  } else {
+    builder.create<func::CallOp>(clockOp->getLoc(), funcOp,
+                                 ValueRange{modelStorageArg});
+  }
 
   // Move the clock's body block to the function and remove the old clock op.
   funcOp.getBody().takeBody(clockRegion);

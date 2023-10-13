@@ -201,6 +201,28 @@ Annotations here are written in their JSON format. A "reference target"
 indicates that the annotation could target any object in the hierarchy,
 although there may be further restrictions in the annotation.
 
+### [AttributeAnnotation](https://javadoc.io/doc/edu.berkeley.cs/firrtl_2.13/latest/firrtl/AttributeAnnotation.html)
+
+| Property    | Type   | Description                  |
+| ----------  | ------ | ---------------------------- |
+| class       | string | `firrtl.AttributeAnnotation` |
+| target      | string | A reference target           |
+| description | string | An attribute                 |
+
+This annotation attaches SV attributes to a specified target. A reference
+target must be a wire, node, reg, or module. This annotation doesn't prevent
+optimizations so it's necessary to add dontTouch annotation if users want to
+preseve the target.
+
+Example:
+```json
+{
+  "class": "firrtl.AttributeAnnotation",
+  "target": "~Foo|Foo>r",
+  "description": "debug = \"true\""
+}
+```
+
 ### BlackBox
 
 | Property   | Type   | Description                  |
@@ -388,6 +410,28 @@ Example:
 {
   "class":"sifive.enterprise.firrtl.AddSeqMemPortsFileAnnotation",
   "filename":"SRAMPorts.txt"
+}
+```
+
+### [DocStringAnnotation](https://javadoc.io/doc/edu.berkeley.cs/firrtl_2.13/latest/firrtl/DocStringAnnotation.html)
+
+| Property    | Type   | Description                  |
+| ----------  | ------ | ---------------------------- |
+| class       | string | `firrtl.DocStringAnnotation` |
+| target      | string | A reference target           |
+| description | string | An attribute                 |
+
+This annotation attaches a comment to a specified target. A reference
+target must be a wire, node, reg, or module. This annotation doesn't prevent
+optimizations so it's necessary to add dontTouch annotation if users want to
+preseve the target.
+
+Example:
+```json
+{
+  "class": "firrtl.DocStringAnnotation",
+  "target": "~Foo|Foo>r",
+  "description": "comment"
 }
 ```
 
@@ -587,6 +631,27 @@ Example:
 }
 ```
 
+### DedupGroupAnnotation
+
+| Property   | Type   | Description                                |
+| ---------- | ------ | -------------                              |
+| class      | string | `firrtl.transforms.DedupGroupAnnotation`   |
+| target     | string | Module target                              |
+| group      | string | The dedup group that the module belongs to |
+
+This annotation assigns the targeted module to a dedup group. Modules that
+belong to a dedup group may only be deduplicated with modules that are part of
+the same group.
+
+Example:
+```json
+{
+  "class":"firrtl.transforms.DedupGroupAnnotation",
+  "target": "~Top|A",
+  "group": "foo"
+}
+```
+
 ### NestedPrefixModulesAnnotation
 
 | Property   | Type   | Description                                              |
@@ -670,7 +735,6 @@ The `value` field can be a JSON array or dictionary (corresponding to the `OMArr
 - `OMBigDecimal:<value>`
 - `OMFrozenTarget:<omir>`
 - `OMDeleted`
-- `OMConstant:<literal>`
 - `OMReferenceTarget:<target>`
 - `OMMemberReferenceTarget:<target>`
 - `OMMemberInstanceTarget:<target>`
@@ -692,7 +756,6 @@ Example:
         {"info": "", "name": "d", "value": "OMString:hello"},
         {"info": "", "name": "f", "value": "OMBigDecimal:10.5"},
         {"info": "", "name": "g", "value": "OMDeleted:"},
-        {"info": "", "name": "h", "value": "OMConstant:UInt<2>(\"h1\")"},
         {"info": "", "name": "i", "value": 42},
         {"info": "", "name": "j", "value": true},
         {"info": "", "name": "k", "value": 3.14}
@@ -757,8 +820,8 @@ Example:
 | target     | string | Reference target                             								|
 
 This annotation attaches metadata to the firrtl.mem operation. The `data` is
-emitted onto the `seq_mems.json` and `tb_seq_mems.json` file. It is required
-for verification only and used by memory generator tools for simulation.
+emitted onto the `seq_mems.json` file. It is required for verification only and
+used by memory generator tools for simulation.
 
 Example:
 ```json

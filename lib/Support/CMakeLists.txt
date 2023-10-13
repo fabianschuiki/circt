@@ -8,22 +8,23 @@ set_source_files_properties("${VERSION_CPP}" PROPERTIES GENERATED TRUE)
 add_circt_library(CIRCTSupport
   APInt.cpp
   BackedgeBuilder.cpp
-  ConversionPatterns.cpp
   CustomDirectiveImpl.cpp
   FieldRef.cpp
   JSON.cpp
   LoweringOptions.cpp
+  Passes.cpp
   Path.cpp
   PrettyPrinter.cpp
   PrettyPrinterHelpers.cpp
+  ParsingUtils.cpp
   SymCache.cpp
   ValueMapper.cpp
+  InstanceGraph.cpp
   "${VERSION_CPP}"
-
-  ADDITIONAL_HEADER_DIRS
 
   LINK_LIBS PUBLIC
   MLIRIR
+  MLIRTransforms
   MLIRTransformUtils
   )
 

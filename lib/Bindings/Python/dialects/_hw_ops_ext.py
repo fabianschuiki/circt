@@ -54,7 +54,9 @@ class InstanceBuilder(support.NamedValueOpView):
     module_name = FlatSymbolRefAttr.get(StringAttr(module.name).value)
     inst_param_array = create_parameters(parameters, module)
     if sym_name:
-      sym_name = StringAttr.get(sym_name)
+      inner_sym = hw.InnerSymAttr.get(StringAttr.get(sym_name))
+    else:
+      inner_sym = None
     pre_args = [instance_name, module_name]
     post_args = [
         ArrayAttr.get([StringAttr.get(x) for x in self.operand_names()]),
@@ -62,12 +64,12 @@ class InstanceBuilder(support.NamedValueOpView):
         ArrayAttr.get(inst_param_array)
     ]
     if results is None:
-      results = module.type.results
+      results = module.type.output_types
 
     if not isinstance(module, hw.HWModuleExternOp):
       input_name_type_lookup = {
           name: support.type_to_pytype(ty)
-          for name, ty in zip(self.operand_names(), module.type.inputs)
+          for name, ty in zip(self.operand_names(), module.type.input_types)
       }
       for input_name, input_value in input_port_mapping.items():
         if input_name not in input_name_type_lookup:
@@ -83,26 +85,22 @@ class InstanceBuilder(support.NamedValueOpView):
                      pre_args,
                      post_args,
                      needs_result_type=True,
-                     inner_sym=sym_name,
+                     inner_sym=inner_sym,
                      loc=loc,
                      ip=ip)
 
   def create_default_value(self, index, data_type, arg_name):
-    type = self.module.type.inputs[index]
+    type = self.module.type.input_types[index]
     return support.BackedgeBuilder.create(type,
                                           arg_name,
                                           self,
                                           instance_of=self.module)
 
   def operand_names(self):
-    arg_names = ArrayAttr(self.module.attributes["argNames"])
-    arg_name_attrs = map(StringAttr, arg_names)
-    return list(map(lambda s: s.value, arg_name_attrs))
+    return self.module.type.input_names
 
   def result_names(self):
-    arg_names = ArrayAttr(self.module.attributes["resultNames"])
-    arg_name_attrs = map(StringAttr, arg_names)
-    return list(map(lambda s: s.value, arg_name_attrs))
+    return self.module.type.output_names
 
 
 class ModuleLike:
@@ -141,32 +139,34 @@ class ModuleLike:
     results = []
     attributes["sym_name"] = StringAttr.get(str(name))
 
-    input_types = []
+    module_ports = []
     input_names = []
-    input_locs = []
+    port_locs = []
     unknownLoc = Location.unknown().attr
     for (i, (port_name, port_type)) in enumerate(input_ports):
-      input_types.append(port_type)
-      input_names.append(StringAttr.get(str(port_name)))
-      input_locs.append(unknownLoc)
-    attributes["argNames"] = ArrayAttr.get(input_names)
-    attributes["argLocs"] = ArrayAttr.get(input_locs)
+      input_name = StringAttr.get(str(port_name))
+      input_dir = hw.ModulePortDirection.INPUT
+      input_port = hw.ModulePort(input_name, port_type, input_dir)
+      module_ports.append(input_port)
+      input_names.append(input_name)
+      port_locs.append(unknownLoc)
 
     output_types = []
     output_names = []
-    output_locs = []
     for (i, (port_name, port_type)) in enumerate(output_ports):
-      output_types.append(port_type)
-      output_names.append(StringAttr.get(str(port_name)))
-      output_locs.append(unknownLoc)
-    attributes["resultNames"] = ArrayAttr.get(output_names)
-    attributes["resultLocs"] = ArrayAttr.get(output_locs)
+      output_name = StringAttr.get(str(port_name))
+      output_dir = hw.ModulePortDirection.OUTPUT
+      output_port = hw.ModulePort(output_name, port_type, output_dir)
+      module_ports.append(output_port)
+      output_names.append(output_name)
+      port_locs.append(unknownLoc)
+    attributes["port_locs"] = ArrayAttr.get(port_locs)
+    attributes["per_port_attrs"] = ArrayAttr.get([])
 
     if len(parameters) > 0 or "parameters" not in attributes:
       attributes["parameters"] = ArrayAttr.get(parameters)
 
-    attributes["function_type"] = TypeAttr.get(
-        FunctionType.get(inputs=input_types, results=output_types))
+    attributes["module_type"] = TypeAttr.get(hw.ModuleType.get(module_ports))
 
     super().__init__(
         self.build_generic(attributes=attributes,
@@ -185,7 +185,7 @@ class ModuleLike:
 
   @property
   def type(self):
-    return FunctionType(TypeAttr(self.attributes["function_type"]).value)
+    return hw.ModuleType(TypeAttr(self.attributes["module_type"]).value)
 
   @property
   def name(self):
@@ -205,6 +205,7 @@ class ModuleLike:
                   name: str,
                   parameters: Dict[str, object] = {},
                   results=None,
+                  sym_name=None,
                   loc=None,
                   ip=None,
                   **kwargs):
@@ -213,6 +214,7 @@ class ModuleLike:
                            kwargs,
                            parameters=parameters,
                            results=results,
+                           sym_name=sym_name,
                            loc=loc,
                            ip=ip)
 
@@ -321,10 +323,9 @@ class HWModuleOp(ModuleLike):
   @property
   def input_indices(self):
     indices: dict[int, str] = {}
-    op_names = ArrayAttr(self.attributes["argNames"])
+    op_names = self.type.input_names
     for idx, name in enumerate(op_names):
-      str_name = StringAttr(name).value
-      indices[str_name] = idx
+      indices[name] = idx
     return indices
 
   # Support attribute access to block arguments by name
@@ -341,17 +342,14 @@ class HWModuleOp(ModuleLike):
     return ret
 
   def outputs(self) -> dict[str:Type]:
-    result_names = [
-        StringAttr(name).value
-        for name in ArrayAttr(self.attributes["resultNames"])
-    ]
-    result_types = self.type.results
+    result_names = self.type.output_names
+    result_types = self.type.output_types
     return dict(zip(result_names, result_types))
 
   def add_entry_block(self):
     if not self.is_external:
       raise IndexError('The module already has an entry block')
-    self.body.blocks.append(*self.type.inputs)
+    self.body.blocks.append(*self.type.input_types)
     return self.body.blocks[0]
 
 

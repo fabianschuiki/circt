@@ -1,7 +1,7 @@
-; RUN: firtool %s --ir-fir | FileCheck %s --check-prefix=SIM-FIR --check-prefix=CHECK-FIR
-; RUN: firtool %s --ir-sv | FileCheck %s --check-prefix=SIM-HW --check-prefix=CHECK-HW
-; RUN: firtool %s --repl-seq-mem --repl-seq-mem-file=test.txt --ir-fir | FileCheck %s --check-prefix=REPL-FIR --check-prefix=CHECK-FIR
-; RUN: firtool %s --repl-seq-mem --repl-seq-mem-file=test.txt --ir-sv | FileCheck %s --check-prefix=REPL-HW --check-prefix=CHECK-HW
+; RUN: firtool --no-dedup %s --ir-fir | FileCheck %s --check-prefix=SIM-FIR --check-prefix=CHECK-FIR
+; RUN: firtool --no-dedup %s --ir-sv | FileCheck %s --check-prefix=SIM-HW --check-prefix=CHECK-HW
+; RUN: firtool --no-dedup %s --repl-seq-mem --repl-seq-mem-file=test.txt --ir-fir | FileCheck %s --check-prefix=REPL-FIR --check-prefix=CHECK-FIR
+; RUN: firtool --no-dedup %s --repl-seq-mem --repl-seq-mem-file=test.txt --ir-sv | FileCheck %s --check-prefix=REPL-HW --check-prefix=CHECK-HW
 
 circuit Foo : %[[
   {
@@ -36,12 +36,12 @@ circuit Foo : %[[
     input writeAddr : UInt<3>
     input writeData : UInt<32>
 
-    ; REPL-FIR:     firrtl.instance mem @prefix1_mem
-    ; REPL-HW:      hw.instance "mem" @prefix1_mem
+    ; REPL-FIR:     firrtl.instance mem sym @{{[^ ]+}} @prefix1_mem
+    ; REPL-HW:      hw.instance "mem" sym @{{[^ ]+}} @prefix1_mem
     ; SIM-FIR:      firrtl.mem
     ; SIM-FIR-SAME:   name = "mem"
     ; SIM-FIR-SAME:   prefix = "prefix1_"
-    ; SIM-HW:       hw.instance "mem_ext" @prefix1_mem_combMem
+    ; SIM-HW:       hw.instance "mem_ext" @prefix1_mem
     mem mem :
       data-type => UInt<1>
       depth => 8
@@ -79,14 +79,14 @@ circuit Foo : %[[
     input writeAddr : UInt<3>
     input writeData : UInt<32>
 
-    ; REPL-FIR:     firrtl.instance mem @prefix2_mem
-    ; REPL-HW:      hw.instance "mem" @prefix2_mem
+    ; REPL-FIR:     firrtl.instance mem sym @{{[^ ]+}} @prefix2_mem
+    ; REPL-HW:      hw.instance "mem" sym @{{[^ ]+}} @prefix2_mem
     ; SIM-FIR:      firrtl.mem
     ; SIM-FIR-SAME:   name = "mem"
     ; SIM-FIR-SAME:   prefix = "prefix2_"
-    ; SIM-HW:       hw.instance "mem_ext" @prefix2_mem_combMem
+    ; SIM-HW:       hw.instance "mem_ext" @prefix2_mem
     mem mem :
-      data-type => UInt<1>
+      data-type => UInt<2>
       depth => 8
       read-latency => 1
       write-latency => 1

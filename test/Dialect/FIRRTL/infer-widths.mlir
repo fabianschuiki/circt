@@ -49,9 +49,11 @@ firrtl.circuit "Foo" {
     // CHECK: firrtl.invalidvalue : !firrtl.uint<0>
     // CHECK: firrtl.invalidvalue : !firrtl.bundle<x: uint<0>>
     // CHECK: firrtl.invalidvalue : !firrtl.vector<uint<0>, 2>
+    // CHECK: firrtl.invalidvalue : !firrtl.enum<a: uint<0>>
     %invalid_0 = firrtl.invalidvalue : !firrtl.uint
     %invalid_1 = firrtl.invalidvalue : !firrtl.bundle<x: uint>
     %invalid_2 = firrtl.invalidvalue : !firrtl.vector<uint, 2>
+    %invalid_3 = firrtl.invalidvalue : !firrtl.enum<a: uint>
   }
 
   // CHECK-LABEL: @InferOutput
@@ -232,6 +234,21 @@ firrtl.circuit "Foo" {
     %c2_si3 = firrtl.constant 2 : !firrtl.sint<3>
     firrtl.connect %0, %c1_ui2 : !firrtl.uint, !firrtl.uint<2>
     firrtl.connect %1, %c2_si3 : !firrtl.sint, !firrtl.sint<3>
+  }
+
+  // CHECK-LABEL: @ConstCastOp
+  firrtl.module @ConstCastOp() {
+    %c0_ui1 = firrtl.constant 0 : !firrtl.const.uint<1>
+    // CHECK: %0 = firrtl.wire : !firrtl.uint<2>
+    // CHECK: %1 = firrtl.wire : !firrtl.sint<3>
+    %0 = firrtl.wire : !firrtl.uint
+    %1 = firrtl.wire : !firrtl.sint
+    %c1 = firrtl.constant 1 : !firrtl.const.uint<2>
+    %c2 = firrtl.constant 2 : !firrtl.const.sint<3>
+    %3 = firrtl.constCast %c1 : (!firrtl.const.uint<2>) -> !firrtl.uint<2>
+    %4 = firrtl.constCast %c2 : (!firrtl.const.sint<3>) -> !firrtl.sint<3>
+    firrtl.connect %0, %3 : !firrtl.uint, !firrtl.uint<2>
+    firrtl.connect %1, %4 : !firrtl.sint, !firrtl.sint<3>
   }
 
   // CHECK-LABEL: @CvtOp
@@ -669,6 +686,15 @@ firrtl.circuit "Foo" {
     firrtl.connect %w_a, %c2_ui3 : !firrtl.uint, !firrtl.uint<3>
   }
 
+  // CHECK-LABEL: @InferEnum
+  firrtl.module @InferEnum(in %in : !firrtl.enum<a: uint<3>>) {
+    // CHECK: %w = firrtl.wire : !firrtl.enum<a: uint<3>>
+    %w = firrtl.wire : !firrtl.enum<a: uint>
+    firrtl.connect %w, %in : !firrtl.enum<a: uint>, !firrtl.enum<a: uint<3>>
+    // CHECK: %0 = firrtl.subtag %w[a] : !firrtl.enum<a: uint<3>>
+    %0 = firrtl.subtag %w[a] : !firrtl.enum<a: uint>
+  }
+
   // CHECK-LABEL: InferComplexBundles
   firrtl.module @InferComplexBundles() {
     // CHECK: %w = firrtl.wire : !firrtl.bundle<a: bundle<v: vector<uint<3>, 10>>, b: bundle<v: vector<uint<3>, 10>>>
@@ -827,8 +853,11 @@ firrtl.circuit "Foo" {
     firrtl.ref.define %bov_ref, %bov_rw : !firrtl.rwprobe<bundle<a: vector<uint, 2>, b : uint>>
 
     %ref_w = firrtl.ref.send %w : !firrtl.uint
-    firrtl.ref.define %x, %ref_w : !firrtl.probe<uint>
+    %cast_ref_w = firrtl.ref.cast %ref_w : (!firrtl.probe<uint>) -> !firrtl.probe<uint>
+    firrtl.ref.define %x, %cast_ref_w : !firrtl.probe<uint>
     firrtl.ref.define %y, %w_rw : !firrtl.rwprobe<uint>
+    // CHECK: firrtl.ref.cast %w_ref : (!firrtl.rwprobe<uint<2>>) -> !firrtl.probe<uint<2>>
+    %cast_w_ro = firrtl.ref.cast %w_rw : (!firrtl.rwprobe<uint>) -> !firrtl.probe<uint>
 
     %c0_ui2 = firrtl.constant 0 : !firrtl.uint<2>
     firrtl.connect %w, %c0_ui2 : !firrtl.uint, !firrtl.uint<2>
@@ -874,11 +903,11 @@ firrtl.circuit "Foo" {
   firrtl.module @ForeignTypes(in %a: !firrtl.uint<42>, out %b: !firrtl.uint) {
     %0 = firrtl.wire : index
     %1 = firrtl.wire : index
-    firrtl.connect %0, %1 : index, index
+    firrtl.strictconnect %0, %1 : index
     firrtl.connect %b, %a : !firrtl.uint, !firrtl.uint<42>
     // CHECK-NEXT: [[W0:%.+]] = firrtl.wire : index
     // CHECK-NEXT: [[W1:%.+]] = firrtl.wire : index
-    // CHECK-NEXT: firrtl.connect [[W0]], [[W1]] : index
+    // CHECK-NEXT: firrtl.strictconnect [[W0]], [[W1]] : index
   }
 
   // CHECK-LABEL: @Issue4859
@@ -901,5 +930,72 @@ firrtl.circuit "Foo" {
     firrtl.connect %1, %b : !firrtl.const.sint, !firrtl.const.sint<2>
     firrtl.attach %2, %c : !firrtl.const.analog, !firrtl.const.analog<3>
     firrtl.connect %3, %d : !firrtl.const.vector<uint, 2>, !firrtl.const.vector<uint<4>, 2>
+  }
+  
+  // Should not crash when encountering property types.
+  // CHECK: firrtl.module @Property(in %a: !firrtl.string)
+  firrtl.module @Property(in %a: !firrtl.string) { }
+
+  // CHECK-LABEL: module @MuxIntrinsics
+  // CHECK-SAME: %sel: !firrtl.uint<1>
+  // CHECK-SAME: %sel2: !firrtl.uint<2>
+  firrtl.module @MuxIntrinsics(in %sel: !firrtl.uint, in %sel2: !firrtl.uint, in %high: !firrtl.uint<1>, in %low: !firrtl.uint<1>, out %out1: !firrtl.uint, out %out2: !firrtl.uint) {
+    %c3_ui4 = firrtl.constant 3 : !firrtl.uint<4>
+    %c3_ui3 = firrtl.constant 3 : !firrtl.uint<3>
+    %c2_ui2 = firrtl.constant 2 : !firrtl.uint<2>
+    %c1_ui1 = firrtl.constant 1 : !firrtl.uint<1>
+    %c1_ui2 = firrtl.constant 1 : !firrtl.uint<2>
+    %c0_ui1 = firrtl.constant 0 : !firrtl.uint<1>
+    %c1 = firrtl.constant 0: !firrtl.uint
+    // CHECK: firrtl.int.mux2cell
+    // CHECK-SAME: (!firrtl.uint<1>, !firrtl.uint<1>, !firrtl.uint<1>) -> !firrtl.uint<1>
+    %0 = firrtl.int.mux2cell(%sel, %c0_ui1, %c1) : (!firrtl.uint, !firrtl.uint<1>, !firrtl.uint) -> !firrtl.uint
+    firrtl.connect %out1, %0: !firrtl.uint, !firrtl.uint
+    // CHECK: firrtl.int.mux4cell
+    // CHECK-SAME: (!firrtl.uint<2>, !firrtl.uint<1>, !firrtl.uint<2>, !firrtl.uint<3>, !firrtl.uint<1>) -> !firrtl.uint<3>
+    %1 = firrtl.int.mux4cell(%sel2, %c1_ui1, %c2_ui2, %c3_ui3, %c1) : (!firrtl.uint, !firrtl.uint<1>, !firrtl.uint<2>, !firrtl.uint<3>, !firrtl.uint) -> !firrtl.uint
+    firrtl.connect %out2, %1: !firrtl.uint, !firrtl.uint
+  }
+
+  // CHECK-LABEL: module @RWProbePort
+  // CHECK-SAME: rwprobe<uint<1>>
+  // CHECK-SAME: rwprobe<uint<2>>
+  firrtl.module @RWProbePort(in %in: !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>,
+                             out %p: !firrtl.rwprobe<uint>,
+                             out %p2: !firrtl.rwprobe<uint>) {
+    // CHECK-NEXT: bundle<a: vector<uint<1>, 2>, b: uint<2>>
+    // CHECK-SAME: rwprobe<uint<1>>
+    // CHECK-SAME: rwprobe<uint<2>>
+    %c_in, %c_p, %c_p2 = firrtl.instance c @RWProbePortChild(in in: !firrtl.bundle<a: vector<uint, 2>, b: uint>, out p: !firrtl.rwprobe<uint>, out p2: !firrtl.rwprobe<uint>)
+    // CHECK-NEXT: !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>, !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>
+   firrtl.connect %c_in, %in : !firrtl.bundle<a: vector<uint, 2>, b: uint>, !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>
+    // CHECK-NEXT: rwprobe<uint<1>>
+    firrtl.ref.define %p, %c_p : !firrtl.rwprobe<uint>
+    // CHECK-NEXT: rwprobe<uint<2>>
+    firrtl.ref.define %p2, %c_p2 : !firrtl.rwprobe<uint>
+  }
+  // CHECK-LABEL: module private @RWProbePortChild(
+  // CHECK-SAME: %in: !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>
+  // CHECK-SAME: %p: !firrtl.rwprobe<uint<1>>
+  // CHECK-SAME: %p2: !firrtl.rwprobe<uint<2>>
+  // CHECK-NEXT: ref.rwprobe {{.+}} : !firrtl.rwprobe<uint<1>>
+  // CHECK-NEXT: ref.rwprobe {{.+}} : !firrtl.rwprobe<uint<2>>
+  firrtl.module private @RWProbePortChild(in %in: !firrtl.bundle<a: vector<uint, 2>, b: uint> sym [<@in_a_1,3,public>,<@in_b,4,public>],
+                                          out %p: !firrtl.rwprobe<uint>,
+                                          out %p2: !firrtl.rwprobe<uint>) {
+    %0 = firrtl.ref.rwprobe <@RWProbePortChild::@in_a_1> : !firrtl.rwprobe<uint>
+    %1 = firrtl.ref.rwprobe <@RWProbePortChild::@in_b> : !firrtl.rwprobe<uint>
+    firrtl.ref.define %p, %0 : !firrtl.rwprobe<uint>
+    firrtl.ref.define %p2, %1 : !firrtl.rwprobe<uint>
+  }
+
+  // https://github.com/llvm/circt/issues/5983
+  // Just check propassign doesn't cause an error.
+  firrtl.module private @StringAndUInt(in %x: !firrtl.uint<5>,
+                                      out %y: !firrtl.uint,
+                                      out %s: !firrtl.string) {
+    firrtl.connect %y, %x : !firrtl.uint, !firrtl.uint<5>
+    %0 = firrtl.string "test"
+    firrtl.propassign %s, %0 : !firrtl.string
   }
 }

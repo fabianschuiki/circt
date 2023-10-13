@@ -6,23 +6,35 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetails.h"
+#include "circt/Dialect/Arc/ArcOps.h"
+#include "circt/Dialect/Arc/ArcPasses.h"
 #include "circt/Dialect/HW/HWInstanceGraph.h"
+#include "circt/Dialect/HW/HWOps.h"
 #include "circt/Support/BackedgeBuilder.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "arc-inline-modules"
 
+namespace circt {
+namespace arc {
+#define GEN_PASS_DEF_INLINEMODULES
+#include "circt/Dialect/Arc/ArcPasses.h.inc"
+} // namespace arc
+} // namespace circt
+
 using namespace circt;
 using namespace arc;
 using namespace hw;
+using namespace igraph;
 using mlir::InlinerInterface;
 
 namespace {
-struct InlineModulesPass : public InlineModulesBase<InlineModulesPass> {
+struct InlineModulesPass
+    : public arc::impl::InlineModulesBase<InlineModulesPass> {
   void runOnOperation() override;
 };
 
@@ -64,6 +76,8 @@ struct PrefixingInliner : public InlinerInterface {
   void updateNames(Operation *op) const {
     if (auto name = op->getAttrOfType<StringAttr>("name"))
       op->setAttr("name", updateName(name));
+    if (auto name = op->getAttrOfType<StringAttr>("instanceName"))
+      op->setAttr("instanceName", updateName(name));
     if (auto namesAttr = op->getAttrOfType<ArrayAttr>("names")) {
       SmallVector<Attribute> names(namesAttr.getValue().begin(),
                                    namesAttr.getValue().end());
@@ -77,7 +91,7 @@ struct PrefixingInliner : public InlinerInterface {
 } // namespace
 
 void InlineModulesPass::runOnOperation() {
-  auto &instanceGraph = getAnalysis<InstanceGraph>();
+  auto &instanceGraph = getAnalysis<hw::InstanceGraph>();
   DenseSet<Operation *> handled;
 
   // Iterate over all instances in the instance graph. This ensures we visit

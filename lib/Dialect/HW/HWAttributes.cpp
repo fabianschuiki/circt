@@ -230,34 +230,48 @@ Attribute InnerRefAttr::parse(AsmParser &p, Type type) {
   return InnerRefAttr::get(attr.getRootReference(), attr.getLeafReference());
 }
 
+static void printSymbolName(AsmPrinter &p, StringAttr sym) {
+  if (sym)
+    p.printSymbolName(sym.getValue());
+  else
+    p.printSymbolName({});
+}
+
 void InnerRefAttr::print(AsmPrinter &p) const {
   p << "<";
-  p.printSymbolName(getModule().getValue());
+  printSymbolName(p, getModule());
   p << "::";
-  p.printSymbolName(getName().getValue());
+  printSymbolName(p, getName());
   p << ">";
 }
 
 //===----------------------------------------------------------------------===//
-// InnerSymAttr
+// InnerSymAttr and InnerSymPropertiesAttr
 //===----------------------------------------------------------------------===//
 
 Attribute InnerSymPropertiesAttr::parse(AsmParser &parser, Type type) {
   StringAttr name;
   NamedAttrList dummyList;
   int64_t fieldId = 0;
-  StringRef visibility;
   if (parser.parseLess() || parser.parseSymbolName(name, "name", dummyList) ||
       parser.parseComma() || parser.parseInteger(fieldId) ||
-      parser.parseComma() ||
-      parser.parseOptionalKeyword(&visibility,
-                                  {"public", "private", "nested"}) ||
-      parser.parseGreater())
+      parser.parseComma())
     return Attribute();
-  StringAttr visibilityAttr = parser.getBuilder().getStringAttr(visibility);
 
-  return InnerSymPropertiesAttr::get(parser.getContext(), name, fieldId,
-                                     visibilityAttr);
+  StringRef visibility;
+  auto loc = parser.getCurrentLocation();
+  if (parser.parseOptionalKeyword(&visibility,
+                                  {"public", "private", "nested"})) {
+    parser.emitError(loc, "expected 'public', 'private', or 'nested'");
+    return Attribute();
+  }
+  auto visibilityAttr = parser.getBuilder().getStringAttr(visibility);
+
+  if (parser.parseGreater())
+    return Attribute();
+
+  return parser.getChecked<InnerSymPropertiesAttr>(parser.getContext(), name,
+                                                   fieldId, visibilityAttr);
 }
 
 void InnerSymPropertiesAttr::print(AsmPrinter &odsPrinter) const {
@@ -265,7 +279,16 @@ void InnerSymPropertiesAttr::print(AsmPrinter &odsPrinter) const {
              << getSymVisibility().getValue() << ">";
 }
 
-StringAttr InnerSymAttr::getSymIfExists(unsigned fieldId) const {
+LogicalResult InnerSymPropertiesAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::mlir::StringAttr name, uint64_t fieldID,
+    ::mlir::StringAttr symVisibility) {
+  if (!name || name.getValue().empty())
+    return emitError() << "inner symbol cannot have empty name";
+  return success();
+}
+
+StringAttr InnerSymAttr::getSymIfExists(uint64_t fieldId) const {
   const auto *it =
       llvm::find_if(getImpl()->props, [&](const InnerSymPropertiesAttr &p) {
         return p.getFieldID() == fieldId;
@@ -275,7 +298,7 @@ StringAttr InnerSymAttr::getSymIfExists(unsigned fieldId) const {
   return {};
 }
 
-InnerSymAttr InnerSymAttr::erase(unsigned fieldID) const {
+InnerSymAttr InnerSymAttr::erase(uint64_t fieldID) const {
   SmallVector<InnerSymPropertiesAttr> syms(getProps());
   const auto *it = llvm::find_if(syms, [fieldID](InnerSymPropertiesAttr p) {
     return p.getFieldID() == fieldID;
@@ -297,19 +320,24 @@ Attribute InnerSymAttr::parse(AsmParser &parser, Type type) {
   StringAttr sym;
   NamedAttrList dummyList;
   SmallVector<InnerSymPropertiesAttr, 4> names;
-  if (!parser.parseOptionalSymbolName(sym, "dummy", dummyList))
-    names.push_back(InnerSymPropertiesAttr::get(sym));
-  else if (parser.parseCommaSeparatedList(
-               OpAsmParser::Delimiter::Square, [&]() -> ParseResult {
-                 InnerSymPropertiesAttr prop;
-                 if (parser.parseCustomAttributeWithFallback(
-                         prop, mlir::Type{}, "dummy", dummyList))
-                   return failure();
+  if (!parser.parseOptionalSymbolName(sym, "dummy", dummyList)) {
+    auto prop = parser.getChecked<InnerSymPropertiesAttr>(
+        parser.getContext(), sym, 0,
+        StringAttr::get(parser.getContext(), "public"));
+    if (!prop)
+      return {};
+    names.push_back(prop);
+  } else if (parser.parseCommaSeparatedList(
+                 OpAsmParser::Delimiter::Square, [&]() -> ParseResult {
+                   InnerSymPropertiesAttr prop;
+                   if (parser.parseCustomAttributeWithFallback(
+                           prop, mlir::Type{}, "dummy", dummyList))
+                     return failure();
 
-                 names.push_back(prop);
+                   names.push_back(prop);
 
-                 return success();
-               }))
+                   return success();
+                 }))
     return Attribute();
 
   std::sort(names.begin(), names.end(),
@@ -365,7 +393,8 @@ Attribute ParamDeclAttr::parse(AsmParser &p, Type trailing) {
     return Attribute();
 
   if (value)
-    return ParamDeclAttr::get(name, value);
+    return ParamDeclAttr::get(p.getContext(),
+                              p.getBuilder().getStringAttr(name), type, value);
   return ParamDeclAttr::get(name, type);
 }
 
@@ -572,7 +601,7 @@ static TypedAttr simplifyAssocOp(
       operands.pop_back();
   }
 
-  return operands.size() == 1 ? operands[0] : Attribute();
+  return operands.size() == 1 ? operands[0] : TypedAttr();
 }
 
 /// Analyze an operand to an add.  If it is a multiplication by a constant (e.g.
@@ -939,7 +968,7 @@ replaceDeclRefInExpr(Location loc,
       auto res = replaceDeclRefInExpr(loc, parameters, operand);
       if (failed(res))
         return {failure()};
-      replacedOperands.push_back(*res);
+      replacedOperands.push_back(res->cast<TypedAttr>());
     }
     return {
         hw::ParamExprAttr::get(paramExprAttr.getOpcode(), replacedOperands)};
@@ -948,7 +977,7 @@ replaceDeclRefInExpr(Location loc,
   return {};
 }
 
-FailureOr<Attribute> hw::evaluateParametricAttr(Location loc,
+FailureOr<TypedAttr> hw::evaluateParametricAttr(Location loc,
                                                 ArrayAttr parameters,
                                                 Attribute paramAttr) {
   // Create a map of the provided parameters for faster lookup.
@@ -966,8 +995,8 @@ FailureOr<Attribute> hw::evaluateParametricAttr(Location loc,
   paramAttr = *paramAttrRes;
 
   // Then, evaluate the parametric attribute.
-  if (paramAttr.isa<IntegerAttr>() || paramAttr.isa<hw::ParamDeclRefAttr>())
-    return paramAttr;
+  if (paramAttr.isa<IntegerAttr, hw::ParamDeclRefAttr>())
+    return paramAttr.cast<TypedAttr>();
   if (auto paramExprAttr = paramAttr.dyn_cast<hw::ParamExprAttr>()) {
     // Since any ParamDeclRefAttr was replaced within the expression,
     // we re-evaluate the expression through the existing ParamExprAttr
@@ -977,7 +1006,30 @@ FailureOr<Attribute> hw::evaluateParametricAttr(Location loc,
   }
 
   llvm_unreachable("Unhandled parametric attribute");
-  return Attribute();
+  return TypedAttr();
+}
+
+template <typename TArray>
+FailureOr<Type> evaluateParametricArrayType(Location loc, ArrayAttr parameters,
+                                            TArray arrayType) {
+  auto size = evaluateParametricAttr(loc, parameters, arrayType.getSizeAttr());
+  if (failed(size))
+    return failure();
+  auto elementType =
+      evaluateParametricType(loc, parameters, arrayType.getElementType());
+  if (failed(elementType))
+    return failure();
+
+  // If the size was evaluated to a constant, use a 64-bit integer
+  // attribute version of it
+  if (auto intAttr = size->template dyn_cast<IntegerAttr>())
+    return TArray::get(
+        arrayType.getContext(), *elementType,
+        IntegerAttr::get(IntegerType::get(arrayType.getContext(), 64),
+                         intAttr.getValue().getSExtValue()));
+
+  // Otherwise parameter references are still involved
+  return TArray::get(arrayType.getContext(), *elementType, *size);
 }
 
 FailureOr<Type> hw::evaluateParametricType(Location loc, ArrayAttr parameters,
@@ -995,29 +1047,12 @@ FailureOr<Type> hw::evaluateParametricType(Location loc, ArrayAttr parameters,
                                    intAttr.getValue().getSExtValue())};
 
         // Otherwise parameter references are still involved
-        return hw::IntType::get(*evaluatedWidth);
+        return hw::IntType::get(evaluatedWidth->cast<TypedAttr>());
       })
-      .Case<hw::ArrayType>([&](hw::ArrayType arrayType) -> FailureOr<Type> {
-        auto size =
-            evaluateParametricAttr(loc, parameters, arrayType.getSizeAttr());
-        if (failed(size))
-          return failure();
-        auto elementType =
-            evaluateParametricType(loc, parameters, arrayType.getElementType());
-        if (failed(elementType))
-          return failure();
-
-        // If the size was evaluated to a constant, use a 64-bit integer
-        // attribute version of it
-        if (auto intAttr = size->dyn_cast<IntegerAttr>())
-          return hw::ArrayType::get(
-              arrayType.getContext(), *elementType,
-              IntegerAttr::get(IntegerType::get(type.getContext(), 64),
-                               intAttr.getValue().getSExtValue()));
-
-        // Otherwise parameter references are still involved
-        return hw::ArrayType::get(arrayType.getContext(), *elementType, *size);
-      })
+      .Case<hw::ArrayType, hw::UnpackedArrayType>(
+          [&](auto arrayType) -> FailureOr<Type> {
+            return evaluateParametricArrayType(loc, parameters, arrayType);
+          })
       .Default([&](auto) { return type; });
 }
 
@@ -1036,7 +1071,7 @@ bool hw::isParametricType(mlir::Type t) {
   return llvm::TypeSwitch<Type, bool>(t)
       .Case<hw::IntType>(
           [&](hw::IntType t) { return isParamAttrWithParamRef(t.getWidth()); })
-      .Case<hw::ArrayType>([&](hw::ArrayType arrayType) {
+      .Case<hw::ArrayType, hw::UnpackedArrayType>([&](auto arrayType) {
         return isParametricType(arrayType.getElementType()) ||
                isParamAttrWithParamRef(arrayType.getSizeAttr());
       })

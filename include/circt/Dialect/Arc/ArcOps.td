@@ -11,9 +11,10 @@
 
 include "circt/Dialect/Arc/ArcDialect.td"
 include "circt/Dialect/Arc/ArcTypes.td"
+include "circt/Dialect/Seq/SeqTypes.td"
 include "circt/Dialect/Arc/ArcInterfaces.td"
 include "mlir/IR/EnumAttr.td"
-include "mlir/IR/FunctionInterfaces.td"
+include "mlir/Interfaces/FunctionInterfaces.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/RegionKindInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
@@ -52,7 +53,7 @@ def DefineOp : ArcOp<"define", [
       build($_builder, $_state, sym_name, function_type, mlir::ArrayAttr(),
             mlir::ArrayAttr());
     }]>,
-    OpBuilder<(ins "mlir::StringRef":$sym_name, 
+    OpBuilder<(ins "mlir::StringRef":$sym_name,
                    "mlir::FunctionType":$function_type), [{
       build($_builder, $_state, sym_name, function_type, mlir::ArrayAttr(),
             mlir::ArrayAttr());
@@ -96,6 +97,16 @@ def DefineOp : ArcOp<"define", [
                            "' attribute of function type";
       return mlir::success();
     }
+
+    /// Returns true if the arc returns the inputs directly and in the same
+    /// order, otherwise false.
+    bool isPassthrough();
+
+    //===------------------------------------------------------------------===//
+    // CallableOpInterface
+    //===------------------------------------------------------------------===//
+
+    mlir::Region *getCallableRegion() { return &getBody(); }
   }];
 }
 
@@ -117,16 +128,17 @@ def OutputOp : ArcOp<"output", [
 }
 
 def StateOp : ArcOp<"state", [
-  CallOpInterface, MemRefsNormalizable,
-  CallOpMutableInterface,
+  MemRefsNormalizable,
+  CallOpInterface,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
-  AttrSizedOperandSegments
+  AttrSizedOperandSegments,
+  DeclareOpInterfaceMethods<ClockedOpInterface, ["isClocked"]>,
 ]> {
   let summary = "State transfer arc";
 
   let arguments = (ins
     FlatSymbolRefAttr:$arc,
-    Optional<I1>:$clock,
+    Optional<ClockType>:$clock,
     Optional<I1>:$enable,
     Optional<I1>:$reset,
     I32Attr:$latency,
@@ -198,7 +210,7 @@ def StateOp : ArcOp<"state", [
 
   let extraClassDeclaration = [{
     operand_range getArgOperands() {
-      return {operand_begin(), operand_end()};
+      return getInputs();
     }
     MutableOperandRange getArgOperandsMutable() {
       return getInputsMutable();
@@ -207,12 +219,17 @@ def StateOp : ArcOp<"state", [
     mlir::CallInterfaceCallable getCallableForCallee() {
       return (*this)->getAttrOfType<mlir::SymbolRefAttr>("arc");
     }
+
+    /// Set the callee for this operation.
+    void setCalleeFromCallable(mlir::CallInterfaceCallable callee) {
+      (*this)->setAttr(getArcAttrName(), callee.get<mlir::SymbolRefAttr>());
+    }
   }];
 }
 
 def CallOp : ArcOp<"call", [
-  CallOpInterface, MemRefsNormalizable, Pure,
-  CallOpMutableInterface,
+  MemRefsNormalizable, Pure,
+  CallOpInterface,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>
 ]> {
   let summary = "calls an arc";
@@ -235,13 +252,18 @@ def CallOp : ArcOp<"call", [
     mlir::CallInterfaceCallable getCallableForCallee() {
       return (*this)->getAttrOfType<mlir::SymbolRefAttr>("arc");
     }
+
+    /// Set the callee for this operation.
+    void setCalleeFromCallable(mlir::CallInterfaceCallable callee) {
+      (*this)->setAttr(getArcAttrName(), callee.get<mlir::SymbolRefAttr>());
+    }
   }];
 }
 
 def ClockGateOp : ArcOp<"clock_gate", [Pure]> {
   let summary = "Clock gate";
-  let arguments = (ins I1:$input, I1:$enable);
-  let results = (outs I1:$output);
+  let arguments = (ins ClockType:$input, I1:$enable);
+  let results = (outs ClockType:$output);
   let assemblyFormat = [{
     $input `,` $enable attr-dict
   }];
@@ -250,67 +272,96 @@ def ClockGateOp : ArcOp<"clock_gate", [Pure]> {
 def MemoryOp : ArcOp<"memory", [MemoryEffects<[MemAlloc]>]> {
   let summary = "Memory";
   let results = (outs MemoryType:$memory);
-  let assemblyFormat = [{
-    type($memory) attr-dict
-  }];
+  let assemblyFormat = "type($memory) attr-dict";
 }
 
 class MemoryAndDataTypesMatch<string mem, string data> : TypesMatchWith<
   "memory and data types must match", mem, data,
   "$_self.cast<MemoryType>().getWordType()">;
+class MemoryAndAddressTypesMatch<string mem, string address> : TypesMatchWith<
+  "memory and address types must match", mem, address,
+  "$_self.cast<MemoryType>().getAddressType()">;
 
 def MemoryReadPortOp : ArcOp<"memory_read_port", [
-  MemoryEffects<[MemRead]>,
+  Pure,
   MemoryAndDataTypesMatch<"memory", "data">,
-  AttrSizedOperandSegments
+  MemoryAndAddressTypesMatch<"memory", "address">
 ]> {
   let summary = "Read port from a memory";
+  let description = [{
+    Represents a combinatorial memory read port. No memory read side-effect
+    trait is necessary because at the stage of the Arc lowering where this
+    operation is legal to be present, it is guaranteed that all reads from the
+    same address produce the same output. This is because all writes are
+    reordered to happen at the end of the cycle in LegalizeStateUpdates (or
+    alternatively produce the necessary temporaries).
+  }];
   let arguments = (ins
     MemoryType:$memory,
-    AnyInteger:$address,
-    Optional<I1>:$clock,
-    Optional<I1>:$enable
+    AnyInteger:$address
   );
   let results = (outs AnyInteger:$data);
 
   let assemblyFormat = [{
-    $memory `[` $address `]` (`if` $enable^)? (`clock` $clock^)?
-    attr-dict `:` type($memory) `,` type($address)
+    $memory `[` $address `]` attr-dict `:` type($memory)
   }];
-
-  let hasVerifier = 1;
-  let hasFolder = 1;
 }
 
 def MemoryWritePortOp : ArcOp<"memory_write_port", [
   MemoryEffects<[MemWrite]>,
-  MemoryAndDataTypesMatch<"memory", "data">,
-  AttrSizedOperandSegments
+  CallOpInterface,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+  AttrSizedOperandSegments,
+  ClockedOpInterface
 ]> {
   let summary = "Write port to a memory";
   let arguments = (ins
     MemoryType:$memory,
-    AnyInteger:$address,
-    Optional<I1>:$clock,
-    Optional<I1>:$enable,
-    AnyInteger:$data,
-    Optional<AnyInteger>:$mask
+    FlatSymbolRefAttr:$arc,
+    Variadic<AnyType>:$inputs,
+    Optional<ClockType>:$clock,
+    UnitAttr:$enable,
+    UnitAttr:$mask,
+    DefaultValuedAttr<I32Attr, "1">:$latency
   );
 
   let assemblyFormat = [{
-    $memory `[` $address `]` `,` $data (`mask` `(` $mask^ `:` type($mask) `)`)?
-    (`if` $enable^)? (`clock` $clock^)?
-    attr-dict `:` type($memory) `,` type($address)
+    $memory `,` $arc  `(` $inputs `)` (`clock` $clock^)?  (`enable` $enable^)?
+    (`mask` $mask^)? `lat` $latency attr-dict `:`
+    type($memory) `,` type($inputs)
   }];
 
   let hasVerifier = 1;
-  let hasFolder = 1;
-  let hasCanonicalizeMethod = 1;
+
+  let extraClassDeclaration = [{
+    SmallVector<Type> getArcResultTypes();
+    static unsigned getAddressIdx() { return 0; }
+    static unsigned getDataIdx() { return 1; }
+    static unsigned getEnableIdx() { return 2; }
+    static unsigned getMaskIdx(bool hasEnable) { return hasEnable ? 3 : 2; }
+
+    operand_range getArgOperands() {
+      return getInputs();
+    }
+    MutableOperandRange getArgOperandsMutable() {
+      return getInputsMutable();
+    }
+
+    mlir::CallInterfaceCallable getCallableForCallee() {
+      return (*this)->getAttrOfType<mlir::SymbolRefAttr>("arc");
+    }
+
+    /// Set the callee for this operation.
+    void setCalleeFromCallable(mlir::CallInterfaceCallable callee) {
+      (*this)->setAttr(getArcAttrName(), callee.get<mlir::SymbolRefAttr>());
+    }
+  }];
 }
 
 def MemoryReadOp : ArcOp<"memory_read", [
   MemoryEffects<[MemRead]>,
-  MemoryAndDataTypesMatch<"memory", "data">
+  MemoryAndDataTypesMatch<"memory", "data">,
+  MemoryAndAddressTypesMatch<"memory", "address">
 ]> {
   let summary = "Read word from memory";
   let arguments = (ins
@@ -320,13 +371,14 @@ def MemoryReadOp : ArcOp<"memory_read", [
   let results = (outs AnyInteger:$data);
 
   let assemblyFormat = [{
-    $memory `[` $address `]` attr-dict `:` type($memory) `,` type($address)
+    $memory `[` $address `]` attr-dict `:` type($memory)
   }];
 }
 
 def MemoryWriteOp : ArcOp<"memory_write", [
   MemoryEffects<[MemWrite]>,
-  MemoryAndDataTypesMatch<"memory", "data">
+  MemoryAndDataTypesMatch<"memory", "data">,
+  MemoryAndAddressTypesMatch<"memory", "address">
 ]> {
   let summary = "Write word to memory";
   let arguments = (ins
@@ -338,7 +390,7 @@ def MemoryWriteOp : ArcOp<"memory_write", [
 
   let assemblyFormat = [{
     $memory `[` $address `]` `,` $data (`if` $enable^)?
-    attr-dict `:` type($memory) `,` type($address)
+    attr-dict `:` type($memory)
   }];
 
   let hasFolder = 1;
@@ -357,7 +409,7 @@ def ClockDomainOp : ArcOp<"clock_domain", [
 ]> {
   let summary = "a clock domain";
 
-  let arguments = (ins Variadic<AnyType>:$inputs, I1:$clock);
+  let arguments = (ins Variadic<AnyType>:$inputs, ClockType:$clock);
   let results = (outs Variadic<AnyType>:$outputs);
   let regions = (region SizedRegion<1>:$body);
 
@@ -374,6 +426,7 @@ def ClockDomainOp : ArcOp<"clock_domain", [
   }];
 
   let hasRegionVerifier = 1;
+  let hasCanonicalizeMethod = 1;
 }
 
 def ClockTreeOp : ArcOp<"clock_tree", [NoTerminator, NoRegionArguments]> {
@@ -458,7 +511,7 @@ def RootOutputOp : ArcOp<"root_output", [
 
 def AllocatableType : AnyTypeOf<[StateType, MemoryType, StorageType]>;
 
-def StorageGetOp : ArcOp<"storage.get", [MemoryEffects<[MemRead]>]> {
+def StorageGetOp : ArcOp<"storage.get", [Pure]> {
   let summary = "Access an allocated state, memory, or storage slice";
   let arguments = (ins StorageType:$storage, I32Attr:$offset);
   let results = (outs AllocatableType:$result);
@@ -466,6 +519,7 @@ def StorageGetOp : ArcOp<"storage.get", [MemoryEffects<[MemRead]>]> {
     $storage `[` $offset `]` attr-dict
     `:` qualified(type($storage)) `->` type($result)
   }];
+  let hasCanonicalizeMethod = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -590,6 +644,161 @@ def ZeroCountOp : ArcOp<"zero_count", [Pure, SameOperandsAndResultType]> {
                        ZeroCountPredicate:$predicate);
   let results = (outs AnySignlessInteger:$output);
   let assemblyFormat = "$predicate $input attr-dict `:` type($input)";
+}
+
+def IntOr1DVectorOfInt : AnyTypeOf<[
+  AnySignlessInteger,
+  VectorOfRankAndType<[1], [AnySignlessInteger]>
+]>;
+
+def VectorizeOp : ArcOp<"vectorize", [
+    IsolatedFromAbove, RecursiveMemoryEffects
+  ]> {
+  let summary = "isolated subgraph of operations to be vectorized";
+  let description = [{
+    This operation represents a vectorized computation DAG. It places a
+    convenient boundary between the subgraph to be vectorized and the
+    surrounding non-vectorizable parts of the original graph.
+
+    This allows us to split the vectorization transformations into multiple
+    parts/passes:
+      * Finding an initial set of operations to be vectorized
+      * Optimizing this set by pulling in more operations into the nested block,
+        splitting it such that the vector width does not exceed a given limit,
+        applying a cost model and potentially reverting the decision to
+        vectorize this subgraph (e.g., because not enough ops could be pulled
+        in)
+      * Performing the actual vectorization by lowering this operation. This
+        operation allows to perform the lowering of the boundary and the body
+        separately and either via 1D `vector` types for SIMD vectorization or
+        plain integers for manual vectorization within a scalar register.
+
+    For each block argument of the nested block, there is a list of operands
+    that represent the elements of the vector. If the boundary is already
+    vectorized each list will only contain a single SSA value of either vector
+    type or an integer representing the concatenation of all original operands
+    of that vector.
+    Only integer types can be vectorized, no arrays or structs are allowed.
+
+    Example:
+
+    Given the following two AND operations in the IR
+    ```mlir
+    %0 = arith.and %in0, %in1 : i1
+    %1 = arith.and %in2, %in2 : i1
+    ```
+    they could be vectorized by putting one such AND operation in the body block
+    of the `arc.vectorize` operation and forwarding the operands accordingly.
+    ```mlir
+    %0:2 = arc.vectorize (%in0, %in1), (%in2, %in2) :
+      (i1, i1, i1, i1) -> (i1, i1) {
+    ^bb0(%arg0: i1, %arg1: i1):
+      %1 = arith.and %arg0, %arg1 : i1
+      arc.output %1 : i1
+    }
+    ```
+    In a next step, the boundary could be lowered/vectorized. This can happen
+    in terms of integers for vectorization within scalar registers:
+    ```mlir
+    %0 = comb.concat %in0, %in1 : i1, i1
+    %1 = comb.replicate %in2 : (i1) -> i2
+    %2 = arc.vectorize (%0), (%1) : (i2, i2) -> (i2) {
+    ^bb0(%arg0: i1, %arg1: i1):
+      %1 = arith.and %arg0, %arg1 : i1
+      arc.output %1 : i1
+    }
+    %3 = comb.extract %2 from 1 : (i2) -> i1
+    %4 = comb.extract %2 from 0 : (i2) -> i1
+    ```
+    Or via `vector` types for SIMD vectorization:
+    ```mlir
+    %cst = arith.constant dense<0> : vector<2xi1>
+    %0 = vector.insert %in0, %cst[0] : i1 into vector<2xi1>
+    %1 = vector.insert %in1, %0[1] : i1 into vector<2xi1>
+    %2 = vector.broadcast %in2 : i1 to vector<2xi1>
+    %3 = arc.vectorize (%1), (%2) :
+      (vector<2xi1>, vector<2xi1>) -> (vector<2xi1>) {
+    ^bb0(%arg0: i1, %arg1: i1):
+      %1 = arith.and %arg0, %arg1 : i1
+      arc.output %1 : i1
+    }
+    %4 = vector.extract %2[0] : vector<2xi1>
+    %5 = vector.extract %2[1] : vector<2xi1>
+    ```
+    Alternatively, the body could be vectorized first. Again, as integers
+    ```mlir
+    %0:2 = arc.vectorize (%in0, %in1), (%in2, %in2) :
+      (i1, i1, i1, i1) -> (i1, i1) {
+    ^bb0(%arg0: i2, %arg1: i2):
+      %1 = arith.and %arg0, %arg1 : i2
+      arc.output %1 : i2
+    }
+    ```
+    or SIMD vectors.
+    ```mlir
+    %0:2 = arc.vectorize (%in0, %in1), (%in2, %in3) : 
+      (i1, i1, i1, i1) -> (i1, i1) {
+    ^bb0(%arg0: vector<2xi1>, %arg1: vector<2xi1>):
+      %1 = arith.and %arg0, %arg1 : vector<2xi1>
+      arc.output %1 : vector<2xi1>
+    }
+    ```
+    Once both sides are lowered, the `arc.vectorize` op simply becomes a
+    passthrough for the operands and can be removed by inlining the nested
+    block. The integer based vectorization would then look like the following:
+    ```mlir
+    %0 = comb.concat %in0, %in1 : i1, i1
+    %1 = comb.replicate %in2 : (i1) -> i2
+    %2 = arith.and %0, %1 : i2
+    %3 = comb.extract %2 from 1 : (i2) -> i1
+    %4 = comb.extract %2 from 0 : (i2) -> i1
+    ```
+    The SIMD vector based lowering would result in the following IR:
+    ```mlir
+    %cst = arith.constant dense<0> : vector<2xi1>
+    %0 = vector.insert %in0, %cst[0] : i1 into vector<2xi1>
+    %1 = vector.insert %in1, %0[1] : i1 into vector<2xi1>
+    %2 = vector.broadcast %in2 : i1 to vector<2xi1>
+    %3 = arith.and %1, %2 : vector<2xi1>
+    %4 = vector.extract %3[0] : vector<2xi1>
+    %5 = vector.extract %3[1] : vector<2xi1>
+    ```
+  }];
+
+  let arguments = (ins
+    VariadicOfVariadic<IntOr1DVectorOfInt, "inputOperandSegments">:$inputs,
+    DenseI32ArrayAttr:$inputOperandSegments);
+  let results = (outs Variadic<IntOr1DVectorOfInt>:$results);
+  let regions = (region SizedRegion<1>:$body);
+
+  let assemblyFormat = [{
+    $inputs attr-dict `:` functional-type($inputs, $results) $body
+  }];
+
+  let extraClassDeclaration = [{
+    /// Returns whether the `arc.vectorize` boundary is already vectorized.
+    /// The boundary is vectorized if each input vector has only one element
+    /// (either of integer or vector type), i.e., the vector itself.
+    bool isBoundaryVectorized();
+
+    /// Returns whether the body block of the `arc.vectorize` is already
+    /// vectorized. The body is vectorized if the boundary is vectorized and
+    /// the body's argument and result types match those of the boundary, or
+    /// they are a vectorized version of the boundary types (i.e., a matching
+    /// vector type or integer with summed-up bitwidth).
+    bool isBodyVectorized();
+  }];
+
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
+def VectorizeReturnOp : ArcOp<"vectorize.return", [
+  HasParent<"VectorizeOp">, Pure, ReturnLike, Terminator
+]> {
+  let summary = "arc.vectorized terminator";
+  let arguments = (ins IntOr1DVectorOfInt:$value);
+  let assemblyFormat = "operands attr-dict `:` qualified(type(operands))";
 }
 
 #endif // CIRCT_DIALECT_ARC_ARCOPS_TD

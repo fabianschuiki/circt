@@ -16,7 +16,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def ExplicitRegs : Pass<"pipeline-explicit-regs", "pipeline::PipelineOp"> {
+def ExplicitRegs : Pass<"pipeline-explicit-regs"> {
   let summary = "Makes stage registers explicit.";
   let description = [{
     Makes all stage-crossing def-use chains into explicit registers.
@@ -25,12 +25,12 @@ def ExplicitRegs : Pass<"pipeline-explicit-regs", "pipeline::PipelineOp"> {
   let constructor = "circt::pipeline::createExplicitRegsPass()";
 }
 
-def ScheduleLinearPipeline : Pass<"pipeline-schedule-linear", "pipeline::PipelineOp"> {
-  let summary = "Schedules a linear pipeline.";
+def ScheduleLinearPipeline : Pass<"pipeline-schedule-linear"> {
+  let summary = "Schedules `pipeline.unscheduled` operations.";
   let description = [{
-    Schedules a linear pipeline based on operator latencies.
+    Schedules `pipeline.unscheduled` operations based on operator latencies.
   }];
-  let dependentDialects = ["hw::HWDialect"];
+  let dependentDialects = ["hw::HWDialect", "seq::SeqDialect"];
   let constructor = "circt::pipeline::createScheduleLinearPipelinePass()";
 }
 

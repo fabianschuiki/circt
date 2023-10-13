@@ -26,4 +26,36 @@ def APSIntAttr : Attr<CPred<"$_self.isa<::mlir::IntegerAttr>()">,
   let convertFromStorage = "$_self.getAPSInt()";
 }
 
+// Compared to the standard ArrayAttr, the accessor to an ArrayRefAttr will
+// convert the attribute to an ArrayRef, while an ArrayAttr accessor just
+// returns itself.
+def ArrayRefAttr :
+  ArrayAttrBase<
+    CPred<"::llvm::isa<::mlir::ArrayAttr>($_self)">, "array attribute"> {
+  let returnType = [{ ::llvm::ArrayRef<Attribute> }];
+  let convertFromStorage = [{ $_self.getValue() }];
+}
+
+def DistinctAttr : Attr<CPred<"$_self.isa<::mlir::DistinctAttr>()">,
+                      "distinct attribute"> {
+  let storageType = [{ ::mlir::DistinctAttr }];
+  let returnType = [{ ::mlir::DistinctAttr }];
+  let convertFromStorage = "$_self";
+}
+
+def FloatAttr : Attr<CPred<"$_self.isa<::mlir::FloatAttr>()">,
+                      "float attribute"> {
+  let storageType = [{ ::mlir::FloatAttr }];
+  let returnType = [{ ::mlir::FloatAttr }];
+  let convertFromStorage = "$_self";
+}
+
+def DoubleAttr : Attr<And<[CPred<"$_self.isa<::mlir::FloatAttr>()">,
+                           CPred<"cast<::mlir::FloatAttr>($_self).getType().isF64()">]>,
+                      "double-precision float"> {
+  let storageType = [{ ::mlir::FloatAttr }];
+  let returnType = [{ ::mlir::FloatAttr }];
+  let convertFromStorage = "$_self";
+}
+
 #endif // CIRCT_TYPES

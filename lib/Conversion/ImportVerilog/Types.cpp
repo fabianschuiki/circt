@@ -101,8 +101,8 @@ struct TypeVisitor {
       return {};
     auto packedInnerType = dyn_cast<moore::PackedType>(innerType);
     if (!packedInnerType) {
-      mlir::emitError(loc, "packed array with unpacked elements; ")
-          << type.elementType.toString() << " is unpacked";
+      mlir::emitError(loc, "packed array requires packed elements; `")
+          << type.elementType.toString() << "` is unpacked";
       return {};
     }
     return moore::PackedRangeDim::get(
@@ -113,66 +113,104 @@ struct TypeVisitor {
     auto innerType = type.elementType.visit(*this);
     if (!innerType)
       return {};
-    auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
-    if (!unpackedInnerType) {
-      mlir::emitError(loc, "dynamic unpacked array; ")
-          << type.elementType.toString() << "is queue unpacked";
-      return {};
-    }
-    return moore::UnpackedQueueDim::get(unpackedInnerType, type.maxBound);
+    return moore::UnpackedQueueDim::get(cast<moore::UnpackedType>(innerType),
+                                        type.maxBound);
   }
 
   Type visit(const slang::ast::AssociativeArrayType &type) {
     auto innerType = type.elementType.visit(*this);
     if (!innerType)
       return {};
-    auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
-    if (!unpackedInnerType) {
-      mlir::emitError(loc, "dynamic unpacked array; ")
-          << type.elementType.toString() << "is associative unpacked";
-      return {};
-    }
     auto indexType = type.indexType->visit(*this);
     if (!indexType)
       return {};
-    auto unpackedIndexType = dyn_cast<moore::UnpackedType>(indexType);
-    if (!unpackedIndexType)
-      return {};
-    return moore::UnpackedAssocDim::get(unpackedInnerType, unpackedIndexType);
+    return moore::UnpackedAssocDim::get(cast<moore::UnpackedType>(innerType),
+                                        cast<moore::UnpackedType>(indexType));
   }
 
   Type visit(const slang::ast::FixedSizeUnpackedArrayType &type) {
     auto innerType = type.elementType.visit(*this);
     if (!innerType)
       return {};
-    auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
-    if (!unpackedInnerType) {
-      mlir::emitError(loc, "dynamic unpacked array; ")
-          << type.elementType.toString() << " is fixed size unpacked";
-      return {};
-    }
     return moore::UnpackedRangeDim::get(
-        unpackedInnerType, moore::Range(type.range.left, type.range.right));
+        cast<moore::UnpackedType>(innerType),
+        moore::Range(type.range.left, type.range.right));
   }
 
   Type visit(const slang::ast::DynamicArrayType &type) {
     auto innerType = type.elementType.visit(*this);
     if (!innerType)
       return {};
-    auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
-    if (!unpackedInnerType) {
-      mlir::emitError(loc, "fixed size unpacked array; ")
-          << type.elementType.toString() << " is dynamic size unpacked";
+    return moore::UnpackedUnsizedDim::get(cast<moore::UnpackedType>(innerType));
+  }
+
+  // Handle type defs.
+  Type visit(const slang::ast::TypeAliasType &type) {
+    auto innerType = type.targetType.getType().visit(*this);
+    if (!innerType)
       return {};
+    auto loc = context.convertLocation(type.location);
+    if (auto packedInnerType = dyn_cast<moore::PackedType>(innerType))
+      return moore::PackedNamedType::get(packedInnerType, type.name, loc);
+    else
+      return moore::UnpackedNamedType::get(cast<moore::UnpackedType>(innerType),
+                                           type.name, loc);
+  }
+
+  // Handle enums.
+  Type visit(const slang::ast::EnumType &type) {
+    auto baseType = type.baseType.visit(*this);
+    if (!baseType)
+      return {};
+    return moore::EnumType::get(StringAttr{}, loc,
+                                cast<moore::PackedType>(baseType));
+  }
+
+  // Collect the members in a struct or union.
+  LogicalResult collectMembers(const slang::ast::Scope &structType,
+                               SmallVectorImpl<moore::StructMember> &members,
+                               bool enforcePacked) {
+    for (auto &field : structType.membersOfType<slang::ast::FieldSymbol>()) {
+      auto loc = context.convertLocation(field.location);
+      auto name = StringAttr::get(context.getContext(), field.name);
+      auto innerType = context.convertType(*field.getDeclaredType());
+      if (!innerType)
+        return failure();
+      if (enforcePacked && !isa<moore::PackedType>(innerType)) {
+        mlir::emitError(loc, "packed struct requires packed fields; `")
+            << field.getType().toString() << "` is unpacked";
+        return failure();
+      }
+      members.push_back({name, loc, cast<moore::UnpackedType>(innerType)});
     }
-    return moore::UnpackedUnsizedDim::get(unpackedInnerType);
+    return success();
+  }
+
+  // Handle packed and unpacked structs.
+  Type visit(const slang::ast::PackedStructType &type) {
+    auto loc = context.convertLocation(type.location);
+    SmallVector<moore::StructMember> members;
+    if (failed(collectMembers(type, members, true)))
+      return {};
+    return moore::PackedStructType::get(moore::StructKind::Struct, members,
+                                        StringAttr{}, loc);
+  }
+
+  Type visit(const slang::ast::UnpackedStructType &type) {
+    auto loc = context.convertLocation(type.location);
+    SmallVector<moore::StructMember> members;
+    if (failed(collectMembers(type, members, false)))
+      return {};
+    return moore::UnpackedStructType::get(moore::StructKind::Struct, members,
+                                          StringAttr{}, loc);
   }
 
   /// Emit an error for all other types.
   template <typename T>
   Type visit(T &&node) {
-    mlir::emitError(loc, "unsupported type: ")
-        << node.template as<slang::ast::Type>().toString();
+    auto d = mlir::emitError(loc, "unsupported type: ")
+             << slang::ast::toString(node.kind);
+    d.attachNote() << node.template as<slang::ast::Type>().toString();
     return {};
   }
 };

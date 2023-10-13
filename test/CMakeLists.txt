@@ -1,6 +1,5 @@
 add_subdirectory(lib)
 add_subdirectory(CAPI)
-add_subdirectory(Dialect)
 
 configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
@@ -20,15 +19,19 @@ set(CIRCT_TEST_DEPENDS
   split-file
   arcilator
   circt-capi-ir-test
+  circt-capi-om-test
+  circt-capi-firrtl-test
   circt-as
   circt-dis
   circt-opt
   circt-translate
   circt-reduce
-  esi-tester
+  circt-verilog
   handshake-runner
   firtool
   hlstool
+  ibistool
+  om-linker
   )
 
 if (CIRCT_GTEST_AVAILABLE)

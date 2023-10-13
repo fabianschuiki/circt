@@ -13,7 +13,7 @@
 
 def SCModuleOp : SystemCOp<"module", [
     Symbol,
-    DeclareOpInterfaceMethods<HWModuleLike>,
+    DeclareOpInterfaceMethods<InstanceGraphModuleOpInterface>,
     FunctionOpInterface,
     IsolatedFromAbove,
     SingleBlock,
@@ -60,16 +60,6 @@ def SCModuleOp : SystemCOp<"module", [
       return RegionKind::Graph;
     }
 
-    /// Returns the argument types of this function.
-    ArrayRef<mlir::Type> getArgumentTypes() {
-      return getFunctionType().getInputs();
-    }
-
-    /// Returns the result types of this function.
-    ArrayRef<mlir::Type> getResultTypes() {
-      return getFunctionType().getResults();
-    }
-
     // Use FunctionOpInterface traits's getFunctionBody method.
     using mlir::detail::FunctionOpInterfaceTrait<SCModuleOp>::getFunctionBody;
 
@@ -83,16 +73,15 @@ def SCModuleOp : SystemCOp<"module", [
       llvm::filter_iterator<Region::BlockArgListType::iterator,
                             std::function<bool(const BlockArgument &)>>>;
 
-    void getPortInfoList(SmallVectorImpl<hw::PortInfo> &portInfoList);
-    PortDirectionRange getPortsOfDirection(hw::PortDirection direction);
+    PortDirectionRange getPortsOfDirection(hw::ModulePort::Direction direction);
     PortDirectionRange getInputPorts() {
-      return getPortsOfDirection(hw::PortDirection::INPUT);
+      return getPortsOfDirection(hw::ModulePort::Direction::Input);
     }
     PortDirectionRange getOutputPorts() {
-      return getPortsOfDirection(hw::PortDirection::OUTPUT);
+      return getPortsOfDirection(hw::ModulePort::Direction::Output);
     }
     PortDirectionRange getInOutPorts() {
-      return getPortsOfDirection(hw::PortDirection::INOUT);
+      return getPortsOfDirection(hw::ModulePort::Direction::InOut);
     }
 
     // Return the Ctor operation in this module's body or create one if none
@@ -102,20 +91,11 @@ def SCModuleOp : SystemCOp<"module", [
     // Return the Destructor operation in this module's body or create one if
     // none exists yet.
     systemc::DestructorOp getOrCreateDestructor();
-  }];
 
-  let extraClassDefinition = [{
-    size_t $cppClass::getNumPorts() {
-      return getPortNames().size();
-    }
-
-    circt::hw::InnerSymAttr $cppClass::getPortSymbolAttr(size_t portIndex) {
-      for (NamedAttribute argAttr :
-           mlir::function_interface_impl::getArgAttrs(*this, portIndex))
-        if (auto sym = argAttr.getValue().dyn_cast<circt::hw::InnerSymAttr>())
-          return sym;
-      return circt::hw::InnerSymAttr();
-    }
+    //===------------------------------------------------------------------===//
+    // PortList Methods
+    //===------------------------------------------------------------------===//
+    SmallVector<::circt::hw::PortInfo> getPortList();
   }];
 }
 
@@ -322,7 +302,6 @@ def DestructorOp : SystemCOp<"cpp.destructor", [
 
 def FuncOp : SystemCOp<"cpp.func", [
   AutomaticAllocationScope,
-  CallableOpInterface,
   FunctionOpInterface,
   IsolatedFromAbove,
   OpAsmOpInterface,
@@ -416,30 +395,8 @@ def FuncOp : SystemCOp<"cpp.func", [
     /// return null in the case of an external callable object, e.g. an external
     /// function.
     ::mlir::Region *getCallableRegion() {
-      return isExternal() ? nullptr : &getBody();
+      return &getBody();
     }
-
-    /// Returns the results types that the callable region produces when
-    /// executed.
-    ArrayRef<Type> getCallableResults() {
-      return getFunctionType().getResults();
-    }
-
-    /// Returns the argument attributes for all callable region arguments or
-    /// null if there are none.
-    ArrayAttr getCallableArgAttrs() {
-      return getArgAttrs().value_or(nullptr);
-    }
-
-    /// Returns the result attributes for all callable region results or
-    /// null if there are none.
-    ArrayAttr getCallableResAttrs() {
-      return getResAttrs().value_or(nullptr);
-    }
-
-    //===------------------------------------------------------------------===//
-    // FunctionOpInterface Methods
-    //===------------------------------------------------------------------===//
 
     /// Returns the argument types of this function.
     ArrayRef<Type> getArgumentTypes() { return getFunctionType().getInputs(); }

@@ -93,7 +93,7 @@ def SensitiveOp : SystemCOp<"sensitive", [HasParent<"CtorOp">]> {
 
 def InstanceDeclOp : SystemCOp<"instance.decl", [
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
-  DeclareOpInterfaceMethods<HWInstanceLike>,
+  DeclareOpInterfaceMethods<InstanceGraphInstanceOpInterface>,
   HasCustomSSAName,
   SystemCNameDeclOpInterface,
   HasParent<"SCModuleOp">
@@ -131,7 +131,7 @@ def InstanceDeclOp : SystemCOp<"instance.decl", [
     }
 
     /// Lookup the module for the symbol. This returns null on invalid IR.
-    Operation *getReferencedModule(const hw::HWSymbolCache *cache);
+    Operation *getReferencedModuleCached(const hw::HWSymbolCache *cache);
 
     //===------------------------------------------------------------------===//
     // SymbolOpInterface Methods
@@ -139,6 +139,11 @@ def InstanceDeclOp : SystemCOp<"instance.decl", [
 
     /// An InstanceDeclOp may not optionally define a symbol.
     bool isOptionalSymbol() { return false; }
+
+    //===------------------------------------------------------------------===//
+    // PortList Methods
+    //===------------------------------------------------------------------===//
+    SmallVector<::circt::hw::PortInfo> getPortList();
   }];
 }
 
@@ -252,6 +257,10 @@ def CallIndirectOp : SystemCOp<"cpp.call_indirect", [
     }]>];
 
   let extraClassDeclaration = [{
+    MutableOperandRange getArgOperandsMutable() {
+      return getCalleeOperandsMutable();
+    }
+
     /// Get the argument operands to the called function.
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
@@ -262,6 +271,13 @@ def CallIndirectOp : SystemCOp<"cpp.call_indirect", [
 
     /// Return the callee of this operation.
     CallInterfaceCallable getCallableForCallee() { return getCallee(); }
+
+    /// Set the callee for this operation.
+    void setCalleeFromCallable(mlir::CallInterfaceCallable callee) {
+      assert(0 && "setCallee not possible");
+      abort();
+    }
+
   }];
 
   let assemblyFormat = [{
@@ -318,6 +334,10 @@ def CallOp : SystemCOp<"cpp.call", [
   let extraClassDeclaration = [{
     FunctionType getCalleeType();
 
+    MutableOperandRange getArgOperandsMutable() {
+      return getCalleeOperandsMutable();
+    }
+
     /// Get the argument operands to the called function.
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
@@ -330,6 +350,12 @@ def CallOp : SystemCOp<"cpp.call", [
     CallInterfaceCallable getCallableForCallee() {
       return (*this)->getAttrOfType<SymbolRefAttr>("callee");
     }
+
+    /// Set the callee for this operation.
+    void setCalleeFromCallable(mlir::CallInterfaceCallable callee) {
+      (*this)->setAttr(getCalleeAttrName(), callee.get<mlir::SymbolRefAttr>());
+    }
+
   }];
 
   let assemblyFormat = [{

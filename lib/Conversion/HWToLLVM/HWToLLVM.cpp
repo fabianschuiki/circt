@@ -35,7 +35,7 @@ circt::HWToLLVMEndianessConverter::convertToLLVMEndianess(Type type,
   // This is hardcoded for little endian machines for now.
   return TypeSwitch<Type, uint32_t>(type)
       .Case<hw::ArrayType>(
-          [&](hw::ArrayType ty) { return ty.getSize() - index - 1; })
+          [&](hw::ArrayType ty) { return ty.getNumElements() - index - 1; })
       .Case<hw::StructType>([&](hw::StructType ty) {
         return ty.getElements().size() - index - 1;
       });
@@ -269,13 +269,14 @@ struct ArrayConcatOpConversion
     // Attention: j is hardcoded for little endian machines.
     size_t j = op.getInputs().size() - 1, k = 0;
 
-    for (size_t i = 0, e = arrTy.getSize(); i < e; ++i) {
+    for (size_t i = 0, e = arrTy.getNumElements(); i < e; ++i) {
       Value element = rewriter.create<LLVM::ExtractValueOp>(
           op->getLoc(), adaptor.getInputs()[j], k);
       arr = rewriter.create<LLVM::InsertValueOp>(op->getLoc(), arr, element, i);
 
       ++k;
-      if (k >= op.getInputs()[j].getType().cast<hw::ArrayType>().getSize()) {
+      if (k >=
+          op.getInputs()[j].getType().cast<hw::ArrayType>().getNumElements()) {
         k = 0;
         --j;
       }
@@ -396,8 +397,9 @@ class AggregateConstantOpConversion
   void flatten(Type type, Attribute attr,
                SmallVectorImpl<Attribute> &output) const;
 
-  Value constructAggregate(OpBuilder &builder, TypeConverter &typeConverter,
-                           Location loc, Type type, Attribute data) const;
+  Value constructAggregate(OpBuilder &builder,
+                           const TypeConverter &typeConverter, Location loc,
+                           Type type, Attribute data) const;
 
 public:
   explicit AggregateConstantOpConversion(
@@ -476,7 +478,7 @@ bool AggregateConstantOpConversion::isMultiDimArrayOfIntegers(
     return true;
 
   if (auto arrTy = type.dyn_cast<hw::ArrayType>()) {
-    dims.push_back(arrTy.getSize());
+    dims.push_back(arrTy.getNumElements());
     return isMultiDimArrayOfIntegers(arrTy.getElementType(), dims);
   }
 
@@ -501,8 +503,8 @@ void AggregateConstantOpConversion::flatten(
 }
 
 Value AggregateConstantOpConversion::constructAggregate(
-    OpBuilder &builder, TypeConverter &typeConverter, Location loc, Type type,
-    Attribute data) const {
+    OpBuilder &builder, const TypeConverter &typeConverter, Location loc,
+    Type type, Attribute data) const {
   Type llvmType = typeConverter.convertType(type);
 
   auto getElementType = [](Type type, size_t index) {
@@ -518,8 +520,9 @@ Value AggregateConstantOpConversion::constructAggregate(
   };
 
   return TypeSwitch<Type, Value>(type)
-      .Case<IntegerType>(
-          [&](auto ty) { return builder.create<LLVM::ConstantOp>(loc, data); })
+      .Case<IntegerType>([&](auto ty) {
+        return builder.create<LLVM::ConstantOp>(loc, data.cast<TypedAttr>());
+      })
       .Case<hw::ArrayType, hw::StructType>([&](auto ty) {
         Value aggVal = builder.create<LLVM::UndefOp>(loc, llvmType);
         auto arrayAttr = data.cast<ArrayAttr>();
@@ -607,7 +610,7 @@ LogicalResult AggregateConstantOpConversion::matchAndRewrite(
 
 static Type convertArrayType(hw::ArrayType type, LLVMTypeConverter &converter) {
   auto elementTy = converter.convertType(type.getElementType());
-  return LLVM::LLVMArrayType::get(elementTy, type.getSize());
+  return LLVM::LLVMArrayType::get(elementTy, type.getNumElements());
 }
 
 static Type convertStructType(hw::StructType type,

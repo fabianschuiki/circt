@@ -122,7 +122,7 @@ namespace {
 struct constant_int_all_ones_matcher {
   bool match(Operation *op) {
     APInt value;
-    return mlir::detail::constant_int_op_binder(&value).match(op) &&
+    return mlir::detail::constant_int_value_binder(&value).match(op) &&
            value.isAllOnes();
   }
 };
@@ -135,7 +135,7 @@ unsigned circt::llhd::getLLHDTypeWidth(Type type) {
   else if (auto ptr = type.dyn_cast<llhd::PtrType>())
     type = ptr.getUnderlyingType();
   if (auto array = type.dyn_cast<hw::ArrayType>())
-    return array.getSize();
+    return array.getNumElements();
   if (auto tup = type.dyn_cast<hw::StructType>())
     return tup.getElements().size();
   return type.getIntOrFloatBitWidth();
@@ -265,8 +265,8 @@ LogicalResult llhd::PtrArraySliceOp::canonicalize(llhd::PtrArraySliceOp op,
 template <class SigPtrType>
 static LogicalResult inferReturnTypesOfStructExtractOp(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
-    DictionaryAttr attrs, mlir::RegionRange regions,
-    SmallVectorImpl<Type> &results) {
+    DictionaryAttr attrs, mlir::OpaqueProperties properties,
+    mlir::RegionRange regions, SmallVectorImpl<Type> &results) {
   Type type = operands[0]
                   .getType()
                   .cast<SigPtrType>()
@@ -288,18 +288,18 @@ static LogicalResult inferReturnTypesOfStructExtractOp(
 
 LogicalResult llhd::SigStructExtractOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
-    DictionaryAttr attrs, mlir::RegionRange regions,
-    SmallVectorImpl<Type> &results) {
+    DictionaryAttr attrs, mlir::OpaqueProperties properties,
+    mlir::RegionRange regions, SmallVectorImpl<Type> &results) {
   return inferReturnTypesOfStructExtractOp<llhd::SigType>(
-      context, loc, operands, attrs, regions, results);
+      context, loc, operands, attrs, properties, regions, results);
 }
 
 LogicalResult llhd::PtrStructExtractOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
-    DictionaryAttr attrs, mlir::RegionRange regions,
-    SmallVectorImpl<Type> &results) {
+    DictionaryAttr attrs, mlir::OpaqueProperties properties,
+    mlir::RegionRange regions, SmallVectorImpl<Type> &results) {
   return inferReturnTypesOfStructExtractOp<llhd::PtrType>(
-      context, loc, operands, attrs, regions, results);
+      context, loc, operands, attrs, properties, regions, results);
 }
 
 //===----------------------------------------------------------------------===//
@@ -529,20 +529,18 @@ LogicalResult circt::llhd::EntityOp::verifyBody() {
   return failure(walkResult.wasInterrupted());
 }
 
-Region *llhd::EntityOp::getCallableRegion() {
-  return isExternal() ? nullptr : &getBody();
+/// Returns the argument types of this function.
+ArrayRef<Type> llhd::EntityOp::getArgumentTypes() {
+  return getFunctionType().getInputs();
 }
 
-ArrayRef<Type> llhd::EntityOp::getCallableResults() {
+/// Returns the result types of this function.
+ArrayRef<Type> llhd::EntityOp::getResultTypes() {
   return getFunctionType().getResults();
 }
 
-ArrayAttr llhd::EntityOp::getCallableArgAttrs() {
-  return getArgAttrs().value_or(nullptr);
-}
-
-ArrayAttr llhd::EntityOp::getCallableResAttrs() {
-  return getResAttrs().value_or(nullptr);
+Region *llhd::EntityOp::getCallableRegion() {
+  return isExternal() ? nullptr : &getBody();
 }
 
 //===----------------------------------------------------------------------===//
@@ -565,6 +563,16 @@ LogicalResult circt::llhd::ProcOp::verifyType() {
     }
   }
   return success();
+}
+
+/// Returns the argument types of this function.
+ArrayRef<Type> llhd::ProcOp::getArgumentTypes() {
+  return getFunctionType().getInputs();
+}
+
+/// Returns the result types of this function.
+ArrayRef<Type> llhd::ProcOp::getResultTypes() {
+  return getFunctionType().getResults();
 }
 
 LogicalResult circt::llhd::ProcOp::verifyBody() { return success(); }
@@ -681,8 +689,8 @@ static void printProcArguments(OpAsmPrinter &p, Operation *op,
   auto printList = [&](unsigned i, unsigned max) -> void {
     for (; i < max; ++i) {
       p << body.front().getArgument(i) << " : " << types[i];
-      p.printOptionalAttrDict(
-          ::mlir::function_interface_impl::getArgAttrs(op, i));
+      p.printOptionalAttrDict(::mlir::function_interface_impl::getArgAttrs(
+          cast<mlir::FunctionOpInterface>(op), i));
 
       if (i < max - 1)
         p << ", ";
@@ -708,18 +716,6 @@ void llhd::ProcOp::print(OpAsmPrinter &printer) {
 
 Region *llhd::ProcOp::getCallableRegion() {
   return isExternal() ? nullptr : &getBody();
-}
-
-ArrayRef<Type> llhd::ProcOp::getCallableResults() {
-  return getFunctionType().getResults();
-}
-
-ArrayAttr llhd::ProcOp::getCallableArgAttrs() {
-  return getArgAttrs().value_or(nullptr);
-}
-
-ArrayAttr llhd::ProcOp::getCallableResAttrs() {
-  return getResAttrs().value_or(nullptr);
 }
 
 //===----------------------------------------------------------------------===//
@@ -776,29 +772,29 @@ LogicalResult llhd::InstOp::verify() {
       (*this)->getParentOfType<ModuleOp>().lookupSymbol<hw::HWModuleOp>(
           calleeAttr.getValue());
   if (module) {
-    auto type = module.getFunctionType();
 
-    if (type.getNumInputs() != getInputs().size())
+    if (module.getNumInputPorts() != getInputs().size())
       return emitOpError(
           "incorrect number of inputs for hw.module instantiation");
 
-    if (type.getNumResults() + type.getNumInputs() != getNumOperands())
+    if (module.getNumOutputPorts() + module.getNumInputPorts() !=
+        getNumOperands())
       return emitOpError(
           "incorrect number of outputs for hw.module instantiation");
 
     // Check input types
-    for (size_t i = 0, e = type.getNumInputs(); i != e; ++i) {
+    for (size_t i = 0, e = module.getNumInputPorts(); i != e; ++i) {
       if (getOperand(i).getType().cast<llhd::SigType>().getUnderlyingType() !=
-          type.getInput(i))
+          module.getInputTypes()[i])
         return emitOpError("input type mismatch");
     }
 
     // Check output types
-    for (size_t i = 0, e = type.getNumResults(); i != e; ++i) {
-      if (getOperand(type.getNumInputs() + i)
+    for (size_t i = 0, e = module.getNumOutputPorts(); i != e; ++i) {
+      if (getOperand(module.getNumInputPorts() + i)
               .getType()
               .cast<llhd::SigType>()
-              .getUnderlyingType() != type.getResult(i))
+              .getUnderlyingType() != module.getOutputTypes()[i])
         return emitOpError("output type mismatch");
     }
 
@@ -915,7 +911,7 @@ ParseResult llhd::RegOp::parse(OpAsmParser &parser, OperationState &result) {
   operandSizes.push_back(triggerOperands.size());
   operandSizes.push_back(delayOperands.size());
   operandSizes.push_back(gateOperands.size());
-  result.addAttribute("operand_segment_sizes",
+  result.addAttribute("operandSegmentSizes",
                       parser.getBuilder().getDenseI32ArrayAttr(operandSizes));
 
   return success();
@@ -938,7 +934,7 @@ void llhd::RegOp::print(OpAsmPrinter &printer) {
     printer << " : " << getValues()[i].getType() << ")";
   }
   printer.printOptionalAttrDict((*this)->getAttrs(),
-                                {"modes", "gateMask", "operand_segment_sizes"});
+                                {"modes", "gateMask", "operandSegmentSizes"});
   printer << " : " << getSignal().getType();
 }
 

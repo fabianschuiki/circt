@@ -13,36 +13,309 @@
 #ifndef CIRCT_DIALECT_HW_HWOPINTERFACES
 #define CIRCT_DIALECT_HW_HWOPINTERFACES
 
+include "mlir/IR/SymbolInterfaces.td"
 include "mlir/IR/OpBase.td"
+include "circt/Support/InstanceGraphInterface.td"
 
-def HWModuleLike : OpInterface<"HWModuleLike"> {
+def PortList : OpInterface<"PortList", []> {
+  let cppNamespace = "circt::hw";
+  let description = "Operations which produce a unified port list representation";
+  let methods = [
+    InterfaceMethod<"Get port list",
+    "SmallVector<::circt::hw::PortInfo>", "getPortList", (ins)>,
+
+    InterfaceMethod<"Get port list",
+    "::circt::hw::PortInfo", "getPort", (ins "size_t":$idx)>,
+
+    InterfaceMethod<"Get the port a specific input",
+    "size_t", "getPortIdForInputId", (ins "size_t":$idx)>,
+
+    InterfaceMethod<"Get the port a specific output",
+    "size_t", "getPortIdForOutputId", (ins "size_t":$idx)>,
+
+    InterfaceMethod<"Get the number of ports",
+    "size_t", "getNumPorts", (ins)>,
+    InterfaceMethod<"Get the number of input ports",
+    "size_t", "getNumInputPorts", (ins)>,
+    InterfaceMethod<"Get the number of output ports",
+    "size_t", "getNumOutputPorts", (ins)>,
+  ];
+}
+
+def HWModuleLike : OpInterface<"HWModuleLike", [
+  Symbol, PortList, InstanceGraphModuleOpInterface]> {
   let cppNamespace = "circt::hw";
   let description = "Provide common module information.";
 
   let methods = [
-    InterfaceMethod<"Check whether the module is publicly visible",
-    "bool", "isPublic", (ins),
-    /*methodBody=*/[{
-      return ::mlir::SymbolTable::getSymbolVisibility($_op) ==
-             ::mlir::SymbolTable::Visibility::Public;
-    }]>,
+    InterfaceMethod<"Get the module type",
+    "::circt::hw::ModuleType", "getHWModuleType", (ins)>,
 
-    InterfaceMethod<"Get the module name",
-    "::llvm::StringRef", "getModuleName", (ins),
-    /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{ return $_op.getName(); }]>,
+    InterfaceMethod<"Get the port Attributes",
+    "SmallVector<Attribute>", "getAllPortAttrs", (ins)>,
 
-    InterfaceMethod<"Get the module name",
-    "::mlir::StringAttr", "getModuleNameAttr", (ins),
-    /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{ return $_op.getNameAttr(); }]>,
+    InterfaceMethod<"Set the port Attributes",
+    "void", "setAllPortAttrs", (ins "ArrayRef<Attribute>":$attrs)>,
 
-    InterfaceMethod<"Get the number of ports",
-    "size_t", "getNumPorts">,
+    InterfaceMethod<"Remove the port Attributes",
+    "void", "removeAllPortAttrs", (ins)>,
 
-    InterfaceMethod<"Get a port symbol attribute",
-    "::circt::hw::InnerSymAttr", "getPortSymbolAttr", (ins "size_t":$portIndex)>
+    InterfaceMethod<"Get the port Locations",
+    "SmallVector<Location>", "getAllPortLocs", (ins)>,
+
+    InterfaceMethod<"Set the port Locations",
+    "void", "setAllPortLocs", (ins "ArrayRef<Location>":$locs)>,
+
+    InterfaceMethod<"Set the module type (and port names)",
+    "void", "setHWModuleType", (ins "::circt::hw::ModuleType":$type)>,
+
+    InterfaceMethod<"Set the port names",
+    "void", "setAllPortNames", (ins "ArrayRef<Attribute>":$names)>,
+
   ];
+
+  let extraSharedClassDeclaration = [{
+    /// Attribute name for port symbols.
+    static StringRef getPortSymbolAttrName() {
+      return "hw.exportPort";
+    }
+
+    /// Return the region containing the body of this function.
+    Region &getModuleBody() { return $_op->getRegion(0); }
+    Block *getBodyBlock() {
+      Region &body = getModuleBody();
+      if (body.empty())
+        return nullptr;
+      return &body.front();
+    }
+
+    /// Returns the entry block argument at the given index.
+    BlockArgument getArgumentForInput(unsigned idx) {
+      return $_op.getModuleBody().getArgument(idx);
+    }
+
+    /// Returns the entry block argument for the given port.  May be null.
+    BlockArgument getArgumentForPort(unsigned idx) {
+      return $_op.getModuleBody().getArgument($_op.getHWModuleType().getInputIdForPortId(idx));
+    }
+
+    SmallVector<mlir::Type> getPortTypes() {
+      return $_op.getHWModuleType().getPortTypes();
+    }
+
+    SmallVector<mlir::Type> getInputTypes() {
+      return $_op.getHWModuleType().getInputTypes();
+    }
+
+    SmallVector<mlir::Type> getOutputTypes() {
+      return $_op.getHWModuleType().getOutputTypes();
+    }
+
+    /// Return the set of names on input and inout ports
+    SmallVector<StringAttr> getInputNamesStr() {
+      return $_op.getHWModuleType().getInputNamesStr();
+    }
+
+    /// Return the set of names on output ports
+    SmallVector<StringAttr> getOutputNamesStr() {
+      return $_op.getHWModuleType().getOutputNamesStr();
+    }
+
+    /// Return the set of names on input and inout ports
+    SmallVector<Attribute> getInputNames() {
+      return $_op.getHWModuleType().getInputNames();
+    }
+
+    /// Return the set of names on output ports
+    SmallVector<Attribute> getOutputNames() {
+      return $_op.getHWModuleType().getOutputNames();
+    }
+
+    void setInputNames(ArrayRef<Attribute> names) {
+      SmallVector<Attribute> newNames(names.begin(), names.end());
+      auto resNames = $_op.getOutputNames();
+      newNames.append(resNames.begin(), resNames.end());
+      $_op.setAllPortNames(newNames);
+    }
+
+    void setOutputNames(ArrayRef<Attribute> names) {
+      SmallVector<Attribute> newNames = $_op.getInputNames();
+      newNames.append(names.begin(), names.end());
+      $_op.setAllPortNames(newNames);
+    }
+
+    // Get the name for the specified input or inout port
+    StringRef getPortName(size_t idx) {
+      return $_op.getHWModuleType().getPortName(idx);
+    }
+
+    // Get the name for the specified input or inout port
+    StringRef getInputName(size_t idx) {
+      return $_op.getHWModuleType().getInputName(idx);
+    }
+
+    // Get the name for the specified output port
+    StringRef getOutputName(size_t idx) {
+      return $_op.getHWModuleType().getOutputName(idx);
+    }
+
+    StringAttr getInputNameAttr(size_t idx) {
+      return $_op.getHWModuleType().getInputNameAttr(idx);
+    }
+
+    StringAttr getOutputNameAttr(size_t idx) {
+      return $_op.getHWModuleType().getOutputNameAttr(idx);
+    }
+
+    Attribute getPortAttrs(size_t idx) {
+      return $_op.getAllPortAttrs()[idx];
+    }
+
+    SmallVector<Attribute> getAllInputAttrs() {
+      auto attrs = $_op.getAllPortAttrs();
+      auto num = $_op.getNumInputPorts();
+      SmallVector<Attribute> retval(num);
+      auto modType = $_op.getHWModuleType();
+      for (unsigned x = 0; x < num; ++x)
+        retval[x] = attrs[modType.getPortIdForInputId(x)];
+      return retval;
+    }
+
+    SmallVector<Attribute> getAllOutputAttrs() {
+      auto attrs = $_op.getAllPortAttrs();
+      auto num = $_op.getNumOutputPorts();
+      SmallVector<Attribute> retval(num);
+      auto modType = $_op.getHWModuleType();
+      for (unsigned x = 0; x < num; ++x)
+        retval[x] = attrs[modType.getPortIdForOutputId(x)];
+      return retval;
+    }
+
+    void setAllInputAttrs(ArrayRef<Attribute> attrs) {
+      SmallVector<Attribute> retval(attrs.begin(), attrs.end());
+      auto resAttrs = $_op.getAllOutputAttrs();
+      retval.append(resAttrs.begin(), resAttrs.end());
+      $_op.setAllPortAttrs(retval);
+    }
+
+    void setAllOutputAttrs(ArrayRef<Attribute> attrs) {
+      SmallVector<Attribute> retval = $_op.getAllInputAttrs();
+      retval.append(attrs.begin(), attrs.end());
+      $_op.setAllPortAttrs(retval);
+    }
+
+    Attribute getInputAttrs(size_t idx) {
+      return $_op.getAllPortAttrs()[$_op.getPortIdForInputId(idx)];
+    }
+
+    Attribute getOutputAttrs(size_t idx) {
+      return $_op.getAllPortAttrs()[$_op.getPortIdForOutputId(idx)];
+    }
+
+    void setPortAttrs(size_t idx, DictionaryAttr attr) {
+      auto attrs = $_op.getAllPortAttrs();
+      attrs[idx] = attr;
+      $_op.setAllPortAttrs(attrs);
+    }
+
+    void setPortAttr(size_t idx, StringAttr name, Attribute value) {
+      auto attrs = $_op.getAllPortAttrs();
+      NamedAttrList pattr(cast<DictionaryAttr>(attrs[idx]));
+      Attribute oldValue;
+      if (!value)
+        oldValue = pattr.erase(name);
+      else
+        oldValue = pattr.set(name, value);
+      if (oldValue != value) {
+        attrs[idx] = pattr.getDictionary($_op.getContext());
+        $_op.setAllPortAttrs(attrs);
+      }
+    }
+
+    void setPortAttrs(StringAttr attrName, ArrayRef<Attribute> newAttrs) {
+      auto attrs = $_op.getAllPortAttrs();
+      auto ctxt = $_op.getContext();
+      assert(newAttrs.size() == attrs.size());
+      for (size_t idx = 0, e = attrs.size(); idx != e; ++idx) {
+        NamedAttrList pattr(cast_or_null<mlir::DictionaryAttr>(attrs[idx]));
+        auto newAttr = newAttrs[idx];
+        if (newAttr)
+          pattr.set(attrName, newAttr);
+        else
+          pattr.erase(attrName);
+        attrs[idx] = pattr.getDictionary(ctxt);
+      }
+      $_op.setAllPortAttrs(attrs);
+    }
+
+    Location getPortLoc(size_t idx) {
+      return $_op.getAllPortLocs()[idx];
+    }
+
+    void setPortLoc(size_t idx, Location loc) {
+      auto locs = $_op.getAllPortLocs();
+      locs[idx] = loc;
+      return $_op.setAllPortLocs(locs);
+    }
+
+    Location getInputLoc(size_t idx) {
+      return $_op.getAllPortLocs()[$_op.getPortIdForInputId(idx)];
+    }
+
+    Location getOutputLoc(size_t idx) {
+      return $_op.getAllPortLocs()[$_op.getPortIdForOutputId(idx)];
+    }
+
+    SmallVector<Location> getInputLocs() {
+      auto locs = $_op.getAllPortLocs();
+      SmallVector<Location> retval;
+      for (unsigned x = 0, e = $_op.getNumInputPorts(); x < e; ++x)
+        retval.push_back(locs[$_op.getPortIdForInputId(x)]);
+      return retval;
+    }
+
+    ArrayAttr getInputLocsAttr() {
+      auto locs = $_op.getAllPortLocs();
+      SmallVector<Attribute> retval;
+      for (unsigned x = 0, e = $_op.getNumInputPorts(); x < e; ++x)
+        retval.push_back(locs[$_op.getPortIdForInputId(x)]);
+      return ArrayAttr::get($_op->getContext(), retval);
+    }
+
+    void setInputLocs(ArrayRef<Location> inAttrs) {
+      assert(inAttrs.size() == $_op.getNumInputPorts());
+      auto outAttrs = getOutputLocs();
+      SmallVector<Location> attrs;
+      attrs.append(inAttrs.begin(), inAttrs.end());
+      attrs.append(outAttrs.begin(), outAttrs.end());
+      $_op.setAllPortLocs(attrs);
+    }
+
+    SmallVector<Location> getOutputLocs() {
+      auto locs = $_op.getAllPortLocs();
+      SmallVector<Location> retval;
+      for (unsigned x = 0, e = $_op.getNumOutputPorts(); x < e; ++x)
+        retval.push_back(locs[$_op.getPortIdForOutputId(x)]);
+      return retval;
+    }
+
+    ArrayAttr getOutputLocsAttr() {
+      auto locs = $_op.getAllPortLocs();
+      SmallVector<Attribute> retval;
+      for (unsigned x = 0, e = $_op.getNumOutputPorts(); x < e; ++x)
+        retval.push_back(locs[$_op.getPortIdForOutputId(x)]);
+      return ArrayAttr::get($_op->getContext(), retval);
+    }
+
+    void setOutputLocs(ArrayRef<Location> outAttrs) {
+      assert(outAttrs.size() == $_op.getNumOutputPorts());
+      auto inAttrs = getInputLocs();
+      SmallVector<Location> attrs;
+      attrs.append(inAttrs.begin(), inAttrs.end());
+      attrs.append(outAttrs.begin(), outAttrs.end());
+      $_op.setAllPortLocs(attrs);
+    }
+  }];
 
   let verify = [{
     static_assert(
@@ -52,59 +325,19 @@ def HWModuleLike : OpInterface<"HWModuleLike"> {
   }];
 }
 
-def HWMutableModuleLike : OpInterface<"HWMutableModuleLike"> {
+def HWMutableModuleLike : OpInterface<"HWMutableModuleLike", [HWModuleLike]> {
   let cppNamespace = "circt::hw";
   let description = "Provide methods to mutate a module.";
 
   let methods = [
-    InterfaceMethod<"Return the number of inputs to this module",
-    "unsigned", "getNumInputs", (ins),
-    /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{
-      return $_op->template getAttrOfType<ArrayAttr>("argNames").size();
-    }]>,
 
-    InterfaceMethod<"Return the number of outputs from this module",
-    "unsigned", "getNumOutputs", (ins),
+    InterfaceMethod<"Get a handle to a utility class which provides by-name lookup of port indices. The returned object does _not_ update if the module is mutated.",
+    "::circt::hw::ModulePortLookupInfo", "getPortLookupInfo", (ins),
     /*methodBody=*/[{}],
     /*defaultImplementation=*/[{
-      return $_op->template getAttrOfType<ArrayAttr>("resultNames").size();
-    }]>,
-
-    InterfaceMethod<"Return the names of the inputs to this module",
-    "mlir::ArrayAttr", "getArgNames", (ins),
-    /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{
-      return $_op->template getAttrOfType<ArrayAttr>("argNames");
-    }]>,
-
-    InterfaceMethod<"Return the names of the outputs this module",
-    "mlir::ArrayAttr", "getResultNames", (ins),
-    /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{
-      return $_op->template getAttrOfType<ArrayAttr>("resultNames");
-    }]>,
-
-    InterfaceMethod<"Return the locations of the inputs to this module",
-    "mlir::ArrayAttr", "getArgLocs", (ins),
-    /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{
-      return $_op->template getAttrOfType<ArrayAttr>("argLocs");
-    }]>,
-
-    InterfaceMethod<"Return the locations of the outputs of this module",
-    "mlir::ArrayAttr", "getResultLocs", (ins),
-    /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{
-      return $_op->template getAttrOfType<ArrayAttr>("resultLocs");
-    }]>,
-
-    InterfaceMethod<
-    "Decode information about the input and output ports on this module.",
-    "::circt::hw::ModulePortInfo", "getPorts", (ins),
-    /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{
-      return getModulePortInfo($_op);
+      return hw::ModulePortLookupInfo(
+        $_op->getContext(),
+        $_op.getPortList());
     }]>,
 
     /// Insert and remove input and output ports of this module. Does not modify
@@ -153,29 +386,20 @@ def HWMutableModuleLike : OpInterface<"HWMutableModuleLike"> {
 }
 
 
-def HWInstanceLike : OpInterface<"HWInstanceLike"> {
+def HWInstanceLike : OpInterface<"HWInstanceLike", [
+    PortList, InstanceGraphInstanceOpInterface]> {
   let cppNamespace = "circt::hw";
   let description = "Provide common  module information.";
 
   let methods = [
-    InterfaceMethod<"Get the name of the instance",
-    "::llvm::StringRef", "getInstanceName", (ins)>,
-
-    InterfaceMethod<"Get the name of the instance",
-    "::mlir::StringAttr", "getInstanceNameAttr", (ins)>,
-
-    InterfaceMethod<"Get the name of the instantiated module",
-    "::llvm::StringRef", "getReferencedModuleName", (ins),
+    InterfaceMethod<"Get the referenced module via a HW symbol cache.",
+    "::mlir::Operation *", "getReferencedModuleCached", (ins
+      "const ::circt::hw::HWSymbolCache *":$cache),
     /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{ return $_op.getModuleName(); }]>,
-
-    InterfaceMethod<"Get the name of the instantiated module",
-    "::mlir::StringAttr", "getReferencedModuleNameAttr", (ins),
-    /*methodBody=*/[{}],
-    /*defaultImplementation=*/[{ return $_op.getModuleNameAttr().getAttr(); }]>,
-
-    InterfaceMethod<"Get the referenced module",
-    "::mlir::Operation *", "getReferencedModule", (ins)>,
+    /*defaultImplementation=*/[{
+      return hw::instance_like_impl::getReferencedModule(
+          cache, $_op, $_op.getModuleNameAttr());
+    }]>,
   ];
 }
 
@@ -284,7 +508,7 @@ def InnerSymbol : OpInterface<"InnerSymbolOpInterface"> {
   ];
 
   let verify = [{
-    return verifyInnerSymAttr(op);
+    return verifyInnerSymAttr(cast<circt::hw::InnerSymbolOpInterface>(op));
   }];
 }
 

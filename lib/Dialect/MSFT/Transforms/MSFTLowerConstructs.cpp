@@ -34,8 +34,7 @@ using namespace msft;
 
 namespace {
 
-struct LowerConstructsPass : public LowerConstructsBase<LowerConstructsPass>,
-                             PassCommon {
+struct LowerConstructsPass : public LowerConstructsBase<LowerConstructsPass> {
   void runOnOperation() override;
 
   /// For naming purposes, get the inner Namespace for a module, building it
@@ -75,10 +74,10 @@ public:
     hw::ArrayType rowInputs =
         hw::type_cast<hw::ArrayType>(array.getRowInputs().getType());
     IntegerType rowIdxType = rewriter.getIntegerType(
-        std::max(1u, llvm::Log2_64_Ceil(rowInputs.getSize())));
+        std::max(1u, llvm::Log2_64_Ceil(rowInputs.getNumElements())));
     SmallVector<Value> rowValues;
-    for (size_t rowNum = 0, numRows = rowInputs.getSize(); rowNum < numRows;
-         ++rowNum) {
+    for (size_t rowNum = 0, numRows = rowInputs.getNumElements();
+         rowNum < numRows; ++rowNum) {
       Value rowNumVal =
           rewriter.create<hw::ConstantOp>(loc, rowIdxType, rowNum);
       auto rowValue =
@@ -93,10 +92,10 @@ public:
     hw::ArrayType colInputs =
         hw::type_cast<hw::ArrayType>(array.getColInputs().getType());
     IntegerType colIdxType = rewriter.getIntegerType(
-        std::max(1u, llvm::Log2_64_Ceil(colInputs.getSize())));
+        std::max(1u, llvm::Log2_64_Ceil(colInputs.getNumElements())));
     SmallVector<Value> colValues;
-    for (size_t colNum = 0, numCols = colInputs.getSize(); colNum < numCols;
-         ++colNum) {
+    for (size_t colNum = 0, numCols = colInputs.getNumElements();
+         colNum < numCols; ++colNum) {
       Value colNumVal =
           rewriter.create<hw::ConstantOp>(loc, colIdxType, colNum);
       auto colValue =
@@ -108,12 +107,12 @@ public:
 
     // Build the PE matrix.
     SmallVector<Value> peOutputs;
-    for (size_t rowNum = 0, numRows = rowInputs.getSize(); rowNum < numRows;
-         ++rowNum) {
+    for (size_t rowNum = 0, numRows = rowInputs.getNumElements();
+         rowNum < numRows; ++rowNum) {
       Value rowValue = rowValues[rowNum];
       SmallVector<Value> colPEOutputs;
-      for (size_t colNum = 0, numCols = colInputs.getSize(); colNum < numCols;
-           ++colNum) {
+      for (size_t colNum = 0, numCols = colInputs.getNumElements();
+           colNum < numCols; ++colNum) {
         Value colValue = colValues[colNum];
         // Clone the PE block, substituting %row (arg 0) and %col (arg 1) for
         // the corresponding row/column broadcast value.
@@ -152,7 +151,7 @@ public:
 
     std::reverse(peOutputs.begin(), peOutputs.end());
     rewriter.replaceOp(array,
-                       {rewriter.create<hw::ArrayCreateOp>(loc, peOutputs)});
+                       rewriter.create<hw::ArrayCreateOp>(loc, peOutputs));
     return success();
   }
 };
@@ -169,7 +168,7 @@ public:
   matchAndRewrite(ChannelOp chan, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = chan.getLoc();
-    Operation *mod = chan->getParentOfType<MSFTModuleOp>();
+    Operation *mod = chan->getParentOfType<hw::HWModuleLike>();
     assert(mod && "ChannelOp must be contained by module");
     Namespace &ns = pass.getNamespaceFor(mod);
     Value clk = chan.getClk();

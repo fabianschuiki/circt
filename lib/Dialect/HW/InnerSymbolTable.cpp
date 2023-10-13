@@ -87,10 +87,9 @@ LogicalResult InnerSymbolTable::walkSymbols(Operation *op,
                  return WalkResult::interrupt();
 
            // Check for ports
-           // TODO: Add fields per port, once they work that way (use addSyms)
-           if (auto mod = dyn_cast<HWModuleLike>(curOp)) {
-             for (size_t i = 0, e = mod.getNumPorts(); i < e; ++i) {
-               if (auto symAttr = mod.getPortSymbolAttr(i))
+           if (auto mod = dyn_cast<PortList>(curOp)) {
+             for (auto [i, port] : llvm::enumerate(mod.getPortList())) {
+               if (auto symAttr = port.getSym())
                  if (failed(walkSyms(symAttr, InnerSymTarget(i, curOp))))
                    return WalkResult::interrupt();
              }
@@ -136,10 +135,9 @@ StringAttr InnerSymbolTable::getInnerSymbol(const InnerSymTarget &target) {
   // Obtain the base InnerSymAttr for the specified target.
   auto getBase = [](auto &target) -> hw::InnerSymAttr {
     if (target.isPort()) {
-      // TODO: This needs to be made to work with HWModuleLike
-      if (auto mod = dyn_cast<HWModuleLike>(target.getOp())) {
+      if (auto mod = dyn_cast<PortList>(target.getOp())) {
         assert(target.getPort() < mod.getNumPorts());
-        return mod.getPortSymbolAttr(target.getPort());
+        return mod.getPort(target.getPort()).getSym();
       }
     } else {
       // InnerSymbols only supported if op implements the interface.
@@ -244,5 +242,17 @@ LogicalResult verifyInnerRefNamespace(Operation *op) {
 }
 
 } // namespace detail
+
+bool InnerRefNamespaceLike::classof(mlir::Operation *op) {
+  return op->hasTrait<mlir::OpTrait::InnerRefNamespace>() ||
+         op->hasTrait<mlir::OpTrait::SymbolTable>();
+}
+
+bool InnerRefNamespaceLike::classof(
+    const mlir::RegisteredOperationName *opInfo) {
+  return opInfo->hasTrait<mlir::OpTrait::InnerRefNamespace>() ||
+         opInfo->hasTrait<mlir::OpTrait::SymbolTable>();
+}
+
 } // namespace hw
 } // namespace circt

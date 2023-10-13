@@ -17,6 +17,7 @@
 #include "circt/Dialect/FIRRTL/FIREmitter.h"
 #include "circt/Dialect/FIRRTL/FIRParser.h"
 #include "circt/Dialect/MSFT/ExportTcl.h"
+#include "circt/Target/DebugInfo.h"
 #include "circt/Target/ExportSystemC.h"
 
 #ifndef CIRCT_INITALLTRANSLATIONS_H
@@ -34,6 +35,7 @@ inline void registerAllTranslations() {
     firrtl::registerFromFIRFileTranslation();
     firrtl::registerToFIRFileTranslation();
     ExportSystemC::registerExportSystemCTranslation();
+    debug::registerTranslations();
     registerFromVerilogTranslation();
     return true;
   }();

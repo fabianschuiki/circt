@@ -500,31 +500,6 @@ firrtl.circuit "TopLevel" {
   // CHECK: firrtl.wire
   // CHECK-SAME: annotations = [{a = "a"}]
 
-// Test that WireOp annotations which are sensitive to field IDs are annotated
-// with the lowered field IDs.
-  // COMMON-LABEL: firrtl.module private @AnnotationsWithFieldIdWireOp
-  firrtl.module private @AnnotationsWithFieldIdWireOp() {
-    %foo = firrtl.wire {annotations = [{class = "sifive.enterprise.grandcentral.SignalDriverAnnotation"}]} : !firrtl.uint<1>
-    %bar = firrtl.wire {annotations = [{class = "sifive.enterprise.grandcentral.SignalDriverAnnotation"}]} : !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<1>>
-    %baz = firrtl.wire {annotations = [{circt.fieldID = 2 : i32, class = "sifive.enterprise.grandcentral.SignalDriverAnnotation"}]} : !firrtl.bundle<a: uint<1>, b: vector<uint<1>, 2>>
-  }
-  // CHECK: %foo = firrtl.wire
-  // CHECK-SAME: {class = "sifive.enterprise.grandcentral.SignalDriverAnnotation"}
-  // CHECK: %bar_a_0 = firrtl.wire
-  // CHECK-SAME: {class = "sifive.enterprise.grandcentral.SignalDriverAnnotation", fieldID = 2 : i64}
-  // CHECK: %bar_a_1 = firrtl.wire
-  // CHECK-SAME: {class = "sifive.enterprise.grandcentral.SignalDriverAnnotation", fieldID = 3 : i64}
-  // CHECK: %bar_b = firrtl.wire
-  // CHECK-SAME: {class = "sifive.enterprise.grandcentral.SignalDriverAnnotation", fieldID = 4 : i64}
-  // CHECK: %baz_a = firrtl.wire
-  // CHECK-NOT:  {class = "sifive.enterprise.grandcentral.SignalDriverAnnotation"}
-  // CHECK: %baz_b_0 = firrtl.wire
-  // CHECK-SAME: {class = "sifive.enterprise.grandcentral.SignalDriverAnnotation", fieldID = 1 : i64}
-  // CHECK: %baz_b_1 = firrtl.wire
-  // CHECK-SAME: {class = "sifive.enterprise.grandcentral.SignalDriverAnnotation", fieldID = 2 : i64}
-  // AGGREGATE:  %baz = firrtl.wire
-  // AGGREGATE-SAME: {annotations = [{circt.fieldID = 2 : i32, class = "sifive.enterprise.grandcentral.SignalDriverAnnotation"}]}
-
 // Test that Reg/RegResetOp Annotations are copied to lowered registers.
   // CHECK-LABEL: firrtl.module private @AnnotationsRegOp
   firrtl.module private @AnnotationsRegOp(in %clock: !firrtl.clock, in %reset: !firrtl.uint<1>) {
@@ -637,7 +612,7 @@ firrtl.circuit "TopLevel" {
 
 // Test wire connection semantics.  Based on the flippedness of the destination
 // type, the connection may be reversed.
-// CHECK-LABEL firrtl.module private @WireSemantics
+// CHECK-LABEL: firrtl.module private @WireSemantics
   firrtl.module private @WireSemantics() {
     %a = firrtl.wire  : !firrtl.bundle<a: bundle<a: uint<1>>>
     %ax = firrtl.wire  : !firrtl.bundle<a: bundle<a: uint<1>>>
@@ -660,8 +635,8 @@ firrtl.circuit "TopLevel" {
     // CHECK: firrtl.connect %a_a_a, %ax_a_a
     %b = firrtl.wire  : !firrtl.bundle<a: bundle<a flip: uint<1>>>
     %bx = firrtl.wire  : !firrtl.bundle<a: bundle<a flip: uint<1>>>
-    // CHECK %b_a_a = firrtl.wire
-    // CHECK %bx_a_a = firrtl.wire
+    // CHECK: %b_a_a = firrtl.wire
+    // CHECK: %bx_a_a = firrtl.wire
     firrtl.connect %b, %bx : !firrtl.bundle<a: bundle<a flip: uint<1>>>, !firrtl.bundle<a: bundle<a flip: uint<1>>>
     // b <= bx
     // CHECK: firrtl.strictconnect %bx_a_a, %b_a_a
@@ -933,10 +908,10 @@ firrtl.circuit "TopLevel" {
   }
 
 // Test InstanceOp with port annotations.
-// CHECK-LABEL firrtl.module private @Bar3
+// CHECK-LABEL: firrtl.module private @Bar3
   firrtl.module private @Bar3(in %a: !firrtl.uint<1>, out %b: !firrtl.bundle<baz: uint<1>, qux: uint<1>>) {
   }
-  // CHECK-LABEL firrtl.module private @Foo3
+  // CHECK-LABEL: firrtl.module private @Foo3
   firrtl.module private @Foo3() {
     // CHECK: in a: !firrtl.uint<1> [{one}], out b_baz: !firrtl.uint<1> [{two}], out b_qux: !firrtl.uint<1>
     %bar_a, %bar_b = firrtl.instance bar @Bar3(
@@ -1108,85 +1083,110 @@ firrtl.module private @is1436_FOO() {
 
   // CHECK-LABEL: firrtl.module private @RefTypeBV_RW
   firrtl.module private @RefTypeBV_RW(
-    out %vec_ref: !firrtl.rwprobe<vector<uint<1>,2>>,
-    out %vec: !firrtl.vector<uint<1>,2>,
-    out %bov_ref: !firrtl.rwprobe<bundle<a: vector<uint<1>,2>, b: uint<2>>>,
-    out %bov: !firrtl.bundle<a: vector<uint<1>,2>, b: uint<2>>,
+    // CHECK-SAME: rwprobe<vector<uint<1>, 2>>
+    out %vec_ref: !firrtl.rwprobe<vector<uint<1>, 2>>,
+    // CHECK-NOT: firrtl.vector
+    out %vec: !firrtl.vector<uint<1>, 2>,
+    // CHECK-SAME: rwprobe<bundle
+    out %bov_ref: !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>,
+    // CHECK-NOT: bundle
+    out %bov: !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>,
+    // CHECK: firrtl.probe
     out %probe: !firrtl.probe<uint<2>>
   ) {
-    // Forceable declaration expanded into ground elements.
-    // CHECK-NEXT: %{{.+}}, %[[X_A_0_REF:.+]] = firrtl.wire forceable : !firrtl.uint<1>, !firrtl.rwprobe<uint<1>>
-    // CHECK-NEXT: %{{.+}}, %[[X_A_1_REF:.+]] = firrtl.wire forceable : !firrtl.uint<1>, !firrtl.rwprobe<uint<1>>
-    // CHECK-NEXT: %{{.+}}, %[[X_B_REF:.+]] = firrtl.wire forceable : !firrtl.uint<2>, !firrtl.rwprobe<uint<2>>
-    %x, %x_ref = firrtl.wire forceable : !firrtl.bundle<a: vector<uint<1>, 2>, b flip: uint<2>>, !firrtl.rwprobe<bundle<a: vector<uint<1>,2>, b: uint<2>>>
+    // Forceable declaration are never expanded into ground elements.
+    // CHECK-NEXT: %{{.+}}, %[[X_REF:.+]] = firrtl.wire forceable : !firrtl.bundle<a: vector<uint<1>, 2>, b flip: uint<2>>, !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>
+    %x, %x_ref = firrtl.wire forceable : !firrtl.bundle<a: vector<uint<1>, 2>, b flip: uint<2>>, !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>
 
-    // Define using forceable ref expanded.
-    // CHECK-NEXT: firrtl.ref.define %{{.+}}, %[[X_A_0_REF]] : !firrtl.rwprobe<uint<1>>
-    // CHECK-NEXT: firrtl.ref.define %{{.+}}, %[[X_A_1_REF]] : !firrtl.rwprobe<uint<1>>
-    // CHECK-NEXT: firrtl.ref.define %{{.+}}, %[[X_B_REF]] : !firrtl.rwprobe<uint<2>>
-    firrtl.ref.define %bov_ref, %x_ref : !firrtl.rwprobe<bundle<a: vector<uint<1>,2>, b: uint<2>>>
+    // Define using forceable ref preserved.
+    // CHECK-NEXT: firrtl.ref.define %{{.+}}, %[[X_REF]] : !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>
+    firrtl.ref.define %bov_ref, %x_ref : !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>
 
-    // Update ref.sub uses.
-    // CHECK-NEXT: %[[v_0:.+]] = firrtl.ref.resolve %[[X_A_0_REF]]
-    // CHECK-NEXT: %[[v_1:.+]] = firrtl.ref.resolve %[[X_A_1_REF]]
+    // Preserve ref.sub uses.
+    // CHECK-NEXT: %[[X_REF_A:.+]] = firrtl.ref.sub %[[X_REF]][0]
+    // CHECK-NEXT: %[[X_A:.+]] = firrtl.ref.resolve %[[X_REF_A]]
+    // CHECK-NEXT: %[[v_0:.+]] = firrtl.subindex %[[X_A]][0]
     // CHECK-NEXT: firrtl.strictconnect %vec_0, %[[v_0]]
+    // CHECK-NEXT: %[[v_1:.+]] = firrtl.subindex %[[X_A]][1]
     // CHECK-NEXT: firrtl.strictconnect %vec_1, %[[v_1]]
-    %x_ref_a = firrtl.ref.sub %x_ref[0] : !firrtl.rwprobe<bundle<a: vector<uint<1>,2>, b: uint<2>>>
-    %x_a = firrtl.ref.resolve %x_ref_a : !firrtl.rwprobe<vector<uint<1>,2>>
-    firrtl.strictconnect %vec, %x_a : !firrtl.vector<uint<1>,2>
+    %x_ref_a = firrtl.ref.sub %x_ref[0] : !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>
+    %x_a = firrtl.ref.resolve %x_ref_a : !firrtl.rwprobe<vector<uint<1>, 2>>
+    firrtl.strictconnect %vec, %x_a : !firrtl.vector<uint<1>, 2>
 
     // Check chained ref.sub's work.
+    // CHECK-NEXT: %[[X_A_1_REF:.+]] = firrtl.ref.sub %[[X_REF_A]][1]
     // CHECK-NEXT: firrtl.ref.resolve %[[X_A_1_REF]]
-    %x_ref_a_1 = firrtl.ref.sub %x_ref_a[1] : !firrtl.rwprobe<vector<uint<1>,2>>
+    %x_ref_a_1 = firrtl.ref.sub %x_ref_a[1] : !firrtl.rwprobe<vector<uint<1>, 2>>
     %x_a_1 = firrtl.ref.resolve %x_ref_a_1 : !firrtl.rwprobe<uint<1>>
 
     // Ref to flipped field.
+    // CHECK-NEXT: %[[X_B_REF:.+]] = firrtl.ref.sub %[[X_REF]][1]
     // CHECK-NEXT: firrtl.ref.resolve %[[X_B_REF]]
-    %x_ref_b = firrtl.ref.sub %x_ref[1] : !firrtl.rwprobe<bundle<a: vector<uint<1>,2>, b: uint<2>>>
+    %x_ref_b = firrtl.ref.sub %x_ref[1] : !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>
     %x_b = firrtl.ref.resolve %x_ref_b : !firrtl.rwprobe<uint<2>>
 
-    // TODO: Handle rwprobe --> probe define, enable this.
-    // firrtl.ref.define %probe, %x_ref_b : !firrtl.probe<uint<2>>
+    // rwprobe -> probe demotion.
+    // CHECK-NEXT: %[[X_B_REF_PROBE:.+]] = firrtl.ref.cast %[[X_B_REF]]
+    // CHECK-NEXT: firrtl.ref.define %probe, %[[X_B_REF_PROBE]] : !firrtl.probe<uint<2>>
+    %x_ref_b_probe = firrtl.ref.cast %x_ref_b : (!firrtl.rwprobe<uint<2>>) -> !firrtl.probe<uint<2>>
+    firrtl.ref.define %probe, %x_ref_b_probe : !firrtl.probe<uint<2>>
 
-    // Check resolve is fully expanded.
-    // CHECK-NEXT: %[[READ_A_0:.+]] = firrtl.ref.resolve %[[X_A_0_REF]]
-    // CHECK-NEXT: %[[READ_A_1:.+]] = firrtl.ref.resolve %[[X_A_1_REF]]
-    // CHECK-NEXT: %[[READ_B:.+]] = firrtl.ref.resolve %[[X_B_REF]]
-    // CHECK-NEXT: firrtl.strictconnect %bov_a_0, %[[READ_A_0]]
-    // CHECK-NEXT: firrtl.strictconnect %bov_a_1, %[[READ_A_1]]
-    // CHECK-NEXT: firrtl.strictconnect %bov_b, %[[READ_B]]
-    %x_read = firrtl.ref.resolve %x_ref : !firrtl.rwprobe<bundle<a: vector<uint<1>,2>, b: uint<2>>>
-    firrtl.strictconnect %bov, %x_read : !firrtl.bundle<a: vector<uint<1>,2>, b: uint<2>>
+    // Aggregate ref.cast, check split up properly.  Demote to probe, cast away some width information.
+    // (Note: The variables here override values used above)
+    // CHECK-NEXT: %[[X_REF_A:.+]] = firrtl.ref.sub %[[X_REF]][0]
+    // CHECK-NEXT: %[[X_REF_A_0:.+]] = firrtl.ref.sub %[[X_REF_A]][0]
+    // CHECK-NEXT: %[[X_REF_A_0_CAST:.+]] = firrtl.ref.cast %[[X_REF_A_0]] : (!firrtl.rwprobe<uint<1>>) -> !firrtl.probe<uint>
+    // CHECK-NEXT: %[[X_REF_A_1:.+]] = firrtl.ref.sub %[[X_REF_A]][1]
+    // CHECK-NEXT: %[[X_REF_A_1_CAST:.+]] = firrtl.ref.cast %[[X_REF_A_1]] : (!firrtl.rwprobe<uint<1>>) -> !firrtl.probe<uint>
+    // CHECK-NEXT: %[[X_REF_B:.+]] = firrtl.ref.sub %[[X_REF]][1]
+    // CHECK-NEXT: %[[X_REF_B_CAST:.+]] = firrtl.ref.cast %[[X_REF_B]] : (!firrtl.rwprobe<uint<2>>) -> !firrtl.probe<uint<2>>
+    // CHECK-NEXT: %[[X_CAST_A_0:.+]] = firrtl.ref.resolve %[[X_REF_A_0_CAST]]
+    // CHECK-NEXT: %[[X_CAST_A_1:.+]] = firrtl.ref.resolve %[[X_REF_A_1_CAST]]
+    // CHECK-NEXT: %[[X_CAST_B:.+]] = firrtl.ref.resolve %[[X_REF_B_CAST]]
+    // CHECK-NEXT: firrtl.node %[[X_CAST_A_0]] : !firrtl.uint
+    // CHECK-NEXT: firrtl.node %[[X_CAST_A_1]] : !firrtl.uint
+    // CHECK-NEXT: firrtl.node %[[X_CAST_B]] : !firrtl.uint<2>
+    %x_ref_cast = firrtl.ref.cast %x_ref : (!firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>) -> !firrtl.probe<bundle<a: vector<uint, 2>, b: uint<2>>>
+    %x_ref_cast_resolve = firrtl.ref.resolve %x_ref_cast : !firrtl.probe<bundle<a: vector<uint, 2>, b: uint<2>>>
+    %x_ref_cast_node = firrtl.node %x_ref_cast_resolve : !firrtl.bundle<a: vector<uint, 2>, b: uint<2>>
+
+    // Check resolve of rwprobe is preserved.
+    // CHECK-NEXT: = firrtl.ref.resolve %[[X_REF]]
+    // CHECK: firrtl.strictconnect %bov_a_0,
+    // CHECK: firrtl.strictconnect %bov_a_1,
+    // CHECK: firrtl.strictconnect %bov_b,
+    %x_read = firrtl.ref.resolve %x_ref : !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>
+    firrtl.strictconnect %bov, %x_read : !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>
     // CHECK-NEXT: }
   }
   // Check how rwprobe's of aggregates in instances are handled.
-  // Temporary until no longer need to lower these.
   // CHECK-LABEL: firrtl.module private @InstWithRWProbeOfAgg
   firrtl.module private @InstWithRWProbeOfAgg(in %clock : !firrtl.clock, in %pred : !firrtl.uint<1>) {
-    // CHECK: {{((%[^,]+, ){4})}}
-    // CHECK-SAME: %[[BOV_REF_A_0:[^,]+]], %[[BOV_REF_A_1:[^,]+]], %[[BOV_REF_B:[^,]+]],
+    // CHECK: {{((%[^,]+, ){3})}}
+    // CHECK-SAME: %[[BOV_REF:[^,]+]],
     // CHECK-SAME: %[[BOV_A_0:.+]],        %[[BOV_A_1:.+]],        %[[BOV_B:.+]],        %{{.+}} = firrtl.instance
     // CHECK-NOT: firrtl.probe
     // CHECK-SAME: probe: !firrtl.probe<uint<2>>)
     %inst_vec_ref, %inst_vec, %inst_bov_ref, %inst_bov, %inst_probe = firrtl.instance inst @RefTypeBV_RW(
-      out vec_ref: !firrtl.rwprobe<vector<uint<1>,2>>,
-      out vec: !firrtl.vector<uint<1>,2>,
-      out bov_ref: !firrtl.rwprobe<bundle<a: vector<uint<1>,2>, b: uint<2>>>,
-      out bov: !firrtl.bundle<a: vector<uint<1>,2>, b: uint<2>>,
+      out vec_ref: !firrtl.rwprobe<vector<uint<1>, 2>>,
+      out vec: !firrtl.vector<uint<1>, 2>,
+      out bov_ref: !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>,
+      out bov: !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>,
       out probe: !firrtl.probe<uint<2>>)
 
     // Check lowering force and release operations.
     // Use self-assigns for simplicity.
-    // CHECK: firrtl.ref.force %clock, %pred, %[[BOV_REF_A_0]], %[[BOV_A_0]] :
-    // CHECK: firrtl.ref.force %clock, %pred, %[[BOV_REF_A_1]], %[[BOV_A_1]] :
-    // CHECK: firrtl.ref.force %clock, %pred, %[[BOV_REF_B]], %[[BOV_B]] :
-    firrtl.ref.force %clock, %pred, %inst_bov_ref, %inst_bov : !firrtl.clock, !firrtl.uint<1>, !firrtl.bundle<a: vector<uint<1>,2>, b: uint<2>>
-    // CHECK-COUNT-3: firrtl.ref.force_initial %pred,
-    firrtl.ref.force_initial %pred, %inst_bov_ref, %inst_bov : !firrtl.uint<1>, !firrtl.bundle<a: vector<uint<1>,2>, b: uint<2>>
-    // CHECK-COUNT-3: firrtl.ref.release %clock, %pred, 
-    firrtl.ref.release %clock, %pred, %inst_bov_ref : !firrtl.clock, !firrtl.uint<1>, !firrtl.rwprobe<bundle<a: vector<uint<1>,2>, b: uint<2>>>
-    // CHECK-COUNT-3: firrtl.ref.release_initial %pred, 
-    firrtl.ref.release_initial %pred, %inst_bov_ref : !firrtl.uint<1>, !firrtl.rwprobe<bundle<a: vector<uint<1>,2>, b: uint<2>>>
+    // Source operand may need to be materialized from its elements.
+    // CHECK: vectorcreate
+    // CHECK: bundlecreate
+    // CHECK: firrtl.ref.force %clock, %pred, %[[BOV_REF]],
+    firrtl.ref.force %clock, %pred, %inst_bov_ref, %inst_bov : !firrtl.clock, !firrtl.uint<1>, !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>
+    // CHECK: firrtl.ref.force_initial %pred, %[[BOV_REF]],
+    firrtl.ref.force_initial %pred, %inst_bov_ref, %inst_bov : !firrtl.uint<1>, !firrtl.bundle<a: vector<uint<1>, 2>, b: uint<2>>
+    // CHECK: firrtl.ref.release %clock, %pred, %[[BOV_REF]] :
+    firrtl.ref.release %clock, %pred, %inst_bov_ref : !firrtl.clock, !firrtl.uint<1>, !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>
+    // CHECK: firrtl.ref.release_initial %pred, %[[BOV_REF]] :
+    firrtl.ref.release_initial %pred, %inst_bov_ref : !firrtl.uint<1>, !firrtl.rwprobe<bundle<a: vector<uint<1>, 2>, b: uint<2>>>
     // CHECK-NEXT: }
   }
 
@@ -1244,6 +1244,52 @@ firrtl.module private @is1436_FOO() {
     } @SubmoduleWithAggregate(out a: !firrtl.vector<uint<1>, 1>)
   }
 
+  // COMMON-LABEL: firrtl.module @ElementWise
+  firrtl.module @ElementWise(in %a: !firrtl.vector<uint<1>, 1>, in %b: !firrtl.vector<uint<1>, 1>, out %c_0: !firrtl.vector<uint<1>, 1>, out %c_1: !firrtl.vector<uint<1>, 1>, out %c_2: !firrtl.vector<uint<1>, 1>) {
+    // CHECK-NEXT: %0 = firrtl.or %a_0, %b_0 : (!firrtl.uint<1>, !firrtl.uint<1>) -> !firrtl.uint<1>
+    // CHECK-NEXT: firrtl.strictconnect %c_0_0, %0 : !firrtl.uint<1>
+    // CHECK-NEXT: %1 = firrtl.and %a_0, %b_0 : (!firrtl.uint<1>, !firrtl.uint<1>) -> !firrtl.uint<1>
+    // CHECK-NEXT: firrtl.strictconnect %c_1_0, %1 : !firrtl.uint<1>
+    // CHECK-NEXT: %2 = firrtl.xor %a_0, %b_0 : (!firrtl.uint<1>, !firrtl.uint<1>) -> !firrtl.uint<1>
+    // CHECK-NEXT: firrtl.strictconnect %c_2_0, %2 : !firrtl.uint<1>
+    // Check that elementwise_* are preserved.
+    // AGGREGATE: firrtl.elementwise_or
+    // AGGREGATE: firrtl.elementwise_and
+    // AGGREGATE: firrtl.elementwise_xor
+    %0 = firrtl.elementwise_or %a, %b : (!firrtl.vector<uint<1>, 1>, !firrtl.vector<uint<1>, 1>) -> !firrtl.vector<uint<1>, 1>
+    firrtl.strictconnect %c_0, %0 : !firrtl.vector<uint<1>, 1>
+    %1 = firrtl.elementwise_and %a, %b : (!firrtl.vector<uint<1>, 1>, !firrtl.vector<uint<1>, 1>) -> !firrtl.vector<uint<1>, 1>
+    firrtl.strictconnect %c_1, %1 : !firrtl.vector<uint<1>, 1>
+    %2 = firrtl.elementwise_xor %a, %b : (!firrtl.vector<uint<1>, 1>, !firrtl.vector<uint<1>, 1>) -> !firrtl.vector<uint<1>, 1>
+    firrtl.strictconnect %c_2, %2 : !firrtl.vector<uint<1>, 1>
+  }
+
+  // CHECK-LABEL: firrtl.module @MuxInt
+  firrtl.module @MuxInt(in %sel1: !firrtl.uint<1>, in %sel2: !firrtl.uint<2>, in %v1: !firrtl.bundle<a: uint<5>>, in %v0: !firrtl.bundle<a: uint<5>>, out %out1: !firrtl.bundle<a: uint<5>>, out %out2: !firrtl.bundle<a: uint<5>>) {
+    // CHECK: firrtl.int.mux4cell(%sel2, %v1_a, %v0_a, %v1_a, %v0_a) : (!firrtl.uint<2>, !firrtl.uint<5>, !firrtl.uint<5>, !firrtl.uint<5>, !firrtl.uint<5>) -> !firrtl.uint<5>
+    %0 = firrtl.int.mux4cell(%sel2, %v1, %v0, %v1, %v0) : (!firrtl.uint<2>, !firrtl.bundle<a: uint<5>>, !firrtl.bundle<a: uint<5>>, !firrtl.bundle<a: uint<5>>, !firrtl.bundle<a: uint<5>>) -> !firrtl.bundle<a: uint<5>>
+    firrtl.strictconnect %out1, %0 : !firrtl.bundle<a: uint<5>>
+    // CHECK: firrtl.int.mux2cell(%sel1, %v1_a, %v0_a) : (!firrtl.uint<1>, !firrtl.uint<5>, !firrtl.uint<5>) -> !firrtl.uint<5>
+    %1 = firrtl.int.mux2cell(%sel1, %v1, %v0) : (!firrtl.uint<1>, !firrtl.bundle<a: uint<5>>, !firrtl.bundle<a: uint<5>>) -> !firrtl.bundle<a: uint<5>>
+    firrtl.strictconnect %out2, %0 : !firrtl.bundle<a: uint<5>>
+  }
+
+  // CHECK-LABEL: firrtl.module @Groups
+  firrtl.declgroup @GroupFoo bind {}
+  firrtl.module @Groups() {
+    // CHECK-NEXT: firrtl.group @GroupFoo
+    firrtl.group @GroupFoo {
+      // CHECK-NEXT: %a_b = firrtl.wire : !firrtl.uint<1>
+      %a = firrtl.wire : !firrtl.bundle<b: uint<1>>
+    }
+  }
+
+  // CHECK-LABEL:  firrtl.module @Alias
+  // CHECK-NOT: alias
+  // AGGREGATE-LABEL: firrtl.module @Alias
+  // AGGREGATE-SAME: alias<FooBundle, bundle<x: uint<32>, y: uint<32>>>
+  firrtl.module @Alias(in %clock: !firrtl.clock, in %reset: !firrtl.uint<1>, out %io: !firrtl.bundle<in flip: alias<FooBundle, bundle<x: uint<32>, y: uint<32>>>, out: alias<FooBundle, bundle<x: uint<32>, y: uint<32>>>>) {
+  }
 } // CIRCUIT
 
 // Check that we don't lose the DontTouchAnnotation when it is not the last
@@ -1271,5 +1317,50 @@ firrtl.circuit "Foo"  {
     %bar_a = firrtl.instance bar sym @bar @Bar(in a: !firrtl.bundle<b: uint<1>>)
     %invalid = firrtl.invalidvalue : !firrtl.bundle<b: uint<1>>
     firrtl.strictconnect %bar_a, %invalid : !firrtl.bundle<b: uint<1>>
+  }
+}
+
+// Check handling of inner symbols.
+// COMMON-LABEL: circuit "InnerSym"
+firrtl.circuit "InnerSym" {
+  // COMMON-LABEL: module @InnerSym(
+  // CHECK-SAME:  in %x_a: !firrtl.uint<5>, in %x_b: !firrtl.uint<3> sym @x)
+  // AGGREGATE-SAME: in %x: !firrtl.bundle<a: uint<5>, b: uint<3>> sym [<@x,2,public>])
+  firrtl.module @InnerSym(in %x: !firrtl.bundle<a: uint<5>, b: uint<3>> sym [<@x,2,public>]) { }
+
+  // COMMON-LABEL: module @InnerSymMore(
+  // CHECK-SAME: in %x_a_x_1: !firrtl.uint<3> sym @x_1
+  // CHECK-SAME: in %x_a_y: !firrtl.uint<2> sym @y
+  firrtl.module @InnerSymMore(in %x: !firrtl.bundle<a: bundle<x: vector<uint<3>, 2>, y: uint<2>>, b: uint<3>> sym [<@y,5, public>,<@x_1,4,public>]) { }
+}
+
+// Check handling of wire of probe-aggregate.
+// COMMON-LABEL: "WireProbe"
+firrtl.circuit "WireProbe" {
+  // (Read-only probes are unconditionally split as workaround for 4479)
+  // COMMON-LABEL: module private @SPassthrough
+  // COMMON-SAME: in %in_a: !firrtl.probe<uint<5>>
+  // COMMON-SAME: in %in_b: !firrtl.probe<uint<5>>
+  firrtl.module private @SPassthrough(in %in: !firrtl.probe<bundle<a: uint<5>, b: uint<5>>>,
+                                      out %y: !firrtl.probe<uint<5>>,
+                                      out %z: !firrtl.probe<uint<5>>) {
+    // COMMON-NEXT: %w_a = firrtl.wire
+    // COMMON-NEXT: %w_b = firrtl.wire
+    // COMMON-NOT: firrtl.ref.sub
+    // COMMON: }
+    %w = firrtl.wire : !firrtl.probe<bundle<a: uint<5>, b: uint<5>>>
+    %0 = firrtl.ref.sub %w[1] : !firrtl.probe<bundle<a: uint<5>, b: uint<5>>>
+    %1 = firrtl.ref.sub %w[0] : !firrtl.probe<bundle<a: uint<5>, b: uint<5>>>
+    firrtl.ref.define %y, %1 : !firrtl.probe<uint<5>>
+    firrtl.ref.define %z, %0 : !firrtl.probe<uint<5>>
+  }
+  firrtl.module @WireProbe(in %x: !firrtl.bundle<a: uint<5>, b: uint<5>>,
+                           out %y: !firrtl.probe<uint<5>>,
+                           out %z: !firrtl.probe<uint<5>>) {
+    %sp_in, %sp_y, %sp_z = firrtl.instance sp @SPassthrough(in in: !firrtl.probe<bundle<a: uint<5>, b: uint<5>>>, out y: !firrtl.probe<uint<5>>, out z: !firrtl.probe<uint<5>>)
+    %0 = firrtl.ref.send %x : !firrtl.bundle<a: uint<5>, b: uint<5>>
+    firrtl.ref.define %sp_in, %0 : !firrtl.probe<bundle<a: uint<5>, b: uint<5>>>
+    firrtl.ref.define %y, %sp_y : !firrtl.probe<uint<5>>
+    firrtl.ref.define %z, %sp_z : !firrtl.probe<uint<5>>
   }
 }

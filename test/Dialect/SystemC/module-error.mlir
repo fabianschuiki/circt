@@ -154,6 +154,7 @@ systemc.module @cannotReadFromOutPort (%port0: !systemc.out<i32>) {
 // -----
 
 systemc.module @inferredTypeDoesNotMatch (%port0: !systemc.in<i32>) {
+  // expected-error @below {{failed to infer returned types}}
   // expected-error @+1 {{op inferred type(s) 'i32' are incompatible with return type(s) of operation 'i4'}}
   %0 = "systemc.signal.read"(%port0) : (!systemc.in<i32>) -> i4
 }
@@ -255,7 +256,7 @@ systemc.module @instanceDeclNonExistentModule () {
 // -----
 
 // expected-note @+1 {{module declared here}}
-hw.module @adder () -> () {}
+hw.module @adder () {}
 
 systemc.module @instanceDeclDoesNotReferenceSystemCModule () {
   // expected-error @+1 {{symbol reference 'adder' isn't a systemc module}}

@@ -30,17 +30,12 @@ namespace instance_like_impl {
 using EmitErrorFn =
     std::function<void(std::function<bool(InFlightDiagnostic &)>)>;
 
-/// Convenience function to query the input and result names of a HW module (as
-/// determined by 'hw::isAnyModule').
-std::pair<ArrayAttr, ArrayAttr> getHWModuleArgAndResultNames(Operation *module);
-
 /// Return a pointer to the referenced module operation.
 Operation *getReferencedModule(const HWSymbolCache *cache,
                                Operation *instanceOp,
                                mlir::FlatSymbolRefAttr moduleName);
 
-/// Verify that the instance refers to a valid HW module as determined by the
-/// 'hw::isAnyModule' function.
+/// Verify that the instance refers to a valid HW module.
 LogicalResult verifyReferencedModule(Operation *instanceOp,
                                      SymbolTableCollection &symbolTable,
                                      mlir::FlatSymbolRefAttr moduleName,

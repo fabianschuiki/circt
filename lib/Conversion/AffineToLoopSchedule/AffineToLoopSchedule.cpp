@@ -43,6 +43,7 @@ using namespace mlir::arith;
 using namespace mlir::memref;
 using namespace mlir::scf;
 using namespace mlir::func;
+using namespace mlir::affine;
 using namespace circt;
 using namespace circt::analysis;
 using namespace circt::scheduling;
@@ -410,7 +411,7 @@ LogicalResult AffineToLoopSchedule::createLoopSchedulePipeline(
   // Create Values for the loop's lower and upper bounds.
   Value lowerBound = lowerAffineLowerBound(innerLoop, builder);
   Value upperBound = lowerAffineUpperBound(innerLoop, builder);
-  int64_t stepValue = innerLoop.getStep();
+  int64_t stepValue = innerLoop.getStep().getSExtValue();
   auto step = builder.create<arith::ConstantOp>(
       IntegerAttr::get(builder.getIndexType(), stepValue));
 
@@ -422,8 +423,7 @@ LogicalResult AffineToLoopSchedule::createLoopSchedulePipeline(
 
   SmallVector<Value> iterArgs;
   iterArgs.push_back(lowerBound);
-  iterArgs.append(innerLoop.getIterOperands().begin(),
-                  innerLoop.getIterOperands().end());
+  iterArgs.append(innerLoop.getInits().begin(), innerLoop.getInits().end());
 
   // If possible, attach a constant trip count attribute. This could be
   // generalized to support non-constant trip counts by supporting an AffineMap.

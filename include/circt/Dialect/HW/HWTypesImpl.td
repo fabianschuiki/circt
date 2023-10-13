@@ -14,10 +14,12 @@
 #define CIRCT_DIALECT_HW_HWTYPESIMPL_TD
 
 include "circt/Dialect/HW/HWDialect.td"
+include "circt/Dialect/HW/HWTypeInterfaces.td"
 include "mlir/IR/AttrTypeBase.td"
 
 // Base class for other typedefs. Provides dialact-specific defaults.
-class HWType<string name> : TypeDef<HWDialect, name> { }
+class HWType<string name, list<Trait> traits = []>
+  : TypeDef<HWDialect, name, traits> { }
 
 //===----------------------------------------------------------------------===//
 // Type declarations
@@ -47,7 +49,7 @@ def IntTypeImpl : HWType<"Int"> {
 }
 
 // A simple fixed size array. Declares the hw::ArrayType in C++.
-def ArrayTypeImpl : HWType<"Array"> {
+def ArrayTypeImpl : HWType<"Array", [DeclareTypeInterfaceMethods<FieldIDTypeInterface>]> {
   let summary = "fixed-sized array";
   let description = [{
     Fixed sized HW arrays are roughly similar to C arrays. On the wire (vs.
@@ -69,12 +71,12 @@ def ArrayTypeImpl : HWType<"Array"> {
       auto sizeAttr = ::mlir::IntegerAttr::get(intType, size);
       return ArrayType::get(ctx, elementType, sizeAttr);
     }
-    size_t getSize() const;
+    size_t getNumElements() const;
   }];
 }
 
 // An 'unpacked' array of fixed size.
-def UnpackedArrayType : HWType<"UnpackedArray"> {
+def UnpackedArrayType : HWType<"UnpackedArray", [DeclareTypeInterfaceMethods<FieldIDTypeInterface>]> {
   let summary = "SystemVerilog 'unpacked' fixed-sized array";
   let description = [{
     Unpacked arrays are a more flexible array representation than packed arrays,
@@ -94,7 +96,7 @@ def UnpackedArrayType : HWType<"UnpackedArray"> {
       auto sizeAttr = ::mlir::IntegerAttr::get(intType, size);
       return UnpackedArrayType::get(ctx, elementType, sizeAttr);
     }
-    size_t getSize() const;
+    size_t getNumElements() const;
   }];
 }
 
@@ -120,7 +122,7 @@ def InOutTypeImpl : HWType<"InOut"> {
 }
 
 // A packed struct. Declares the hw::StructType in C++.
-def StructTypeImpl : HWType<"Struct"> {
+def StructTypeImpl : HWType<"Struct", [DeclareTypeInterfaceMethods<FieldIDTypeInterface>]> {
   let summary = "HW struct type";
   let description = [{
     Represents a structure of name, value pairs.
@@ -129,6 +131,7 @@ def StructTypeImpl : HWType<"Struct"> {
   let mnemonic = "struct";
 
   let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
 
   let parameters = (
     ins ArrayRefParameter<
@@ -182,12 +185,13 @@ def UnionTypeImpl : HWType<"Union"> {
   let mnemonic = "union";
 
   let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
 
   let extraClassDeclaration = [{
     using FieldInfo = ::circt::hw::detail::OffsetFieldInfo;
 
     FieldInfo getFieldInfo(::mlir::StringRef fieldName);
-    
+
     ::mlir::Type getFieldType(::mlir::StringRef fieldName);
   }];
 }
@@ -226,6 +230,56 @@ def TypeAliasType : HWType<"TypeAlias"> {
     /// look in.  This returns null when the IR is malformed.
     TypedeclOp getTypeDecl(const HWSymbolCache &cache);
   }];
+}
+
+def ModuleTypeImpl : HWType<"Module"> {
+  let summary = "Module Type";
+  let description = [{
+    Module types have ports.
+  }];
+  let parameters = (ins ArrayRefParameter<"::circt::hw::ModulePort", "port list">:$ports);
+  let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
+  let mnemonic = "modty";
+
+  let extraClassDeclaration = [{
+    // Many of these are transitional and will be removed when modules and instances
+    // have moved over to this type.
+    // *Input* are input indexed
+    // *Output* are output indexed
+    // *Port* are absolutely indexed
+    size_t getNumPorts();
+    size_t getNumInputs();
+    size_t getNumOutputs();
+    SmallVector<Type> getPortTypes();
+    SmallVector<Type> getInputTypes();
+    SmallVector<Type> getOutputTypes();
+    Type getPortType(size_t);
+    Type getInputType(size_t);
+    Type getOutputType(size_t);
+    SmallVector<StringAttr> getInputNamesStr();
+    SmallVector<StringAttr> getOutputNamesStr();
+    SmallVector<Attribute> getInputNames();
+    SmallVector<Attribute> getOutputNames();
+    StringAttr getPortNameAttr(size_t);
+    StringRef getPortName(size_t);
+    StringAttr getInputNameAttr(size_t);
+    StringRef getInputName(size_t);
+    StringAttr getOutputNameAttr(size_t);
+    StringRef getOutputName(size_t);
+    FunctionType getFuncType();
+    bool isOutput(size_t);
+    size_t getInputIdForPortId(size_t);
+    size_t getOutputIdForPortId(size_t);
+    size_t getPortIdForInputId(size_t);
+    size_t getPortIdForOutputId(size_t);
+  }];
+}
+
+def HWStringTypeImpl : HWType<"String"> {
+  let summary = "String type";
+  let description = "Defines a string type for the hw-centric dialects";
+  let mnemonic = "string";
 }
 
 #endif // CIRCT_DIALECT_HW_HWTYPESIMPL_TD

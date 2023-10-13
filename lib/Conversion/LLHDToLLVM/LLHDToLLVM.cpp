@@ -42,7 +42,7 @@ using namespace circt::llhd;
 
 /// Get an existing global string.
 static Value getGlobalString(Location loc, OpBuilder &builder,
-                             TypeConverter *typeConverter,
+                             const TypeConverter *typeConverter,
                              LLVM::GlobalOp &str) {
   auto voidPtrTy = LLVM::LLVMPointerType::get(builder.getContext());
   auto i32Ty = IntegerType::get(builder.getContext(), 32);
@@ -194,7 +194,7 @@ static Type unwrapLLVMPtr(Type ty) {
 /// defined in. An LLVMType structure containing those types, in order of
 /// appearance, is returned.
 static Type getProcPersistenceTy(LLVM::LLVMDialect *dialect,
-                                 TypeConverter *converter, ProcOp &proc) {
+                                 const TypeConverter *converter, ProcOp &proc) {
   SmallVector<Type, 3> types = SmallVector<Type, 3>();
   proc.walk([&](Operation *op) -> void {
     if (op->isUsedOutsideOfBlock(op->getBlock()) || isWaitDestArg(op)) {
@@ -276,7 +276,7 @@ static Value gepPersistenceState(LLVM::LLVMDialect *dialect, Location loc,
 /// substituting the uses that escape the block the operation is defined in with
 /// a load from the persistence table.
 static void persistValue(LLVM::LLVMDialect *dialect, Location loc,
-                         TypeConverter *converter,
+                         const TypeConverter *converter,
                          ConversionPatternRewriter &rewriter, Type stateTy,
                          int &i, Value state, Value persist) {
   auto elemTy = stateTy.cast<LLVM::LLVMStructType>()
@@ -351,7 +351,7 @@ static void persistValue(LLVM::LLVMDialect *dialect, Location loc,
 
 /// Insert the blocks and operations needed to persist values across suspension,
 /// as well as ones needed to resume execution at the right spot.
-static void insertPersistence(TypeConverter *converter,
+static void insertPersistence(const TypeConverter *converter,
                               ConversionPatternRewriter &rewriter,
                               LLVM::LLVMDialect *dialect, Location loc,
                               ProcOp &proc, Type &stateTy,
@@ -1087,7 +1087,7 @@ struct InstOpConversion : public ConvertToLLVMPattern {
       auto oneC = initBuilder.create<LLVM::ConstantOp>(
           op->getLoc(), i32Ty, rewriter.getI32IntegerAttr(1));
       auto regNull =
-          initBuilder.create<LLVM::NullOp>(op->getLoc(), regStatePtrTy);
+          initBuilder.create<LLVM::ZeroOp>(op->getLoc(), regStatePtrTy);
       auto regGep = initBuilder.create<LLVM::GEPOp>(
           op->getLoc(), regStatePtrTy, regNull, ArrayRef<Value>({oneC}));
       auto regSize =
@@ -1157,7 +1157,7 @@ struct InstOpConversion : public ConvertToLLVMPattern {
             op.getLoc(), i32Ty, rewriter.getI32IntegerAttr(1));
         auto twoC = initBuilder.create<LLVM::ConstantOp>(
             op.getLoc(), i64Ty, rewriter.getI32IntegerAttr(2));
-        auto nullPtr = initBuilder.create<LLVM::NullOp>(
+        auto nullPtr = initBuilder.create<LLVM::ZeroOp>(
             op.getLoc(), LLVM::LLVMPointerType::get(underlyingTy));
         auto sizeGep = initBuilder.create<LLVM::GEPOp>(
             op.getLoc(), LLVM::LLVMPointerType::get(underlyingTy), nullPtr,
@@ -1210,7 +1210,7 @@ struct InstOpConversion : public ConvertToLLVMPattern {
               rewriter.getI32IntegerAttr(arrayTy.getNumElements()));
 
           // Get element size.
-          auto null = initBuilder.create<LLVM::NullOp>(
+          auto null = initBuilder.create<LLVM::ZeroOp>(
               op.getLoc(), LLVM::LLVMPointerType::get(arrayTy));
           auto gepFirst = initBuilder.create<LLVM::GEPOp>(
               op.getLoc(), LLVM::LLVMPointerType::get(arrayTy.getElementType()),
@@ -1227,7 +1227,7 @@ struct InstOpConversion : public ConvertToLLVMPattern {
           auto zeroC = initBuilder.create<LLVM::ConstantOp>(
               op.getLoc(), i32Ty, rewriter.getI32IntegerAttr(0));
 
-          auto null = initBuilder.create<LLVM::NullOp>(
+          auto null = initBuilder.create<LLVM::ZeroOp>(
               op.getLoc(), LLVM::LLVMPointerType::get(structTy));
           for (size_t i = 0, e = structTy.getBody().size(); i < e; ++i) {
             auto oneC = initBuilder.create<LLVM::ConstantOp>(
@@ -1243,7 +1243,7 @@ struct InstOpConversion : public ConvertToLLVMPattern {
                 op.getLoc(), i32Ty, gepElem);
 
             // Get element size.
-            auto elemNull = initBuilder.create<LLVM::NullOp>(
+            auto elemNull = initBuilder.create<LLVM::ZeroOp>(
                 op.getLoc(), LLVM::LLVMPointerType::get(structTy.getBody()[i]));
             auto gepElemSize = initBuilder.create<LLVM::GEPOp>(
                 op.getLoc(), LLVM::LLVMPointerType::get(structTy.getBody()[i]),
@@ -1283,7 +1283,7 @@ struct InstOpConversion : public ConvertToLLVMPattern {
 
       // Malloc space for the process state.
       auto procStateNullPtr =
-          initBuilder.create<LLVM::NullOp>(op->getLoc(), procStatePtrTy);
+          initBuilder.create<LLVM::ZeroOp>(op->getLoc(), procStatePtrTy);
       auto procStateGep = initBuilder.create<LLVM::GEPOp>(
           op->getLoc(), procStatePtrTy, procStateNullPtr,
           ArrayRef<Value>({oneC}));
@@ -1307,7 +1307,7 @@ struct InstOpConversion : public ConvertToLLVMPattern {
 
       // Malloc space for the senses table.
       auto sensesNullPtr =
-          initBuilder.create<LLVM::NullOp>(op->getLoc(), sensesPtrTy);
+          initBuilder.create<LLVM::ZeroOp>(op->getLoc(), sensesPtrTy);
       auto sensesGep = initBuilder.create<LLVM::GEPOp>(
           op->getLoc(), sensesPtrTy, sensesNullPtr, ArrayRef<Value>({oneC}));
       auto sensesSize =
@@ -1512,7 +1512,7 @@ struct DrvOpConversion : public ConvertToLLVMPattern {
           op->getLoc(), i32Ty, rewriter.getI32IntegerAttr(1));
       auto eightC = rewriter.create<LLVM::ConstantOp>(
           op->getLoc(), i64Ty, rewriter.getI64IntegerAttr(8));
-      auto nullPtr = rewriter.create<LLVM::NullOp>(op->getLoc(), llvmPtrTy);
+      auto nullPtr = rewriter.create<LLVM::ZeroOp>(op->getLoc(), llvmPtrTy);
       auto gepOne = rewriter.create<LLVM::GEPOp>(
           op->getLoc(), llvmPtrTy, nullPtr, ArrayRef<Value>(oneC));
       auto toInt =

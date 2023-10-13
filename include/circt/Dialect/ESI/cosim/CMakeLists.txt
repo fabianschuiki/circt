@@ -29,4 +29,10 @@ if(CapnProto_FOUND)
     PRIVATE
     CapnProto::capnp
     CapnProto::capnp-rpc)
+
+  add_custom_command(TARGET EsiCosimCapnp PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E
+    copy "${CMAKE_CURRENT_SOURCE_DIR}/CosimDpi.capnp" "CosimDpi.capnp")
+  target_sources(EsiCosimCapnp PUBLIC "CosimDpi.capnp")
+  install(FILES "CosimDpi.capnp" DESTINATION runtime)
 endif()

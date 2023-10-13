@@ -74,12 +74,13 @@ void SFCCompatPass::runOnOperation() {
     // If the `RegResetOp` has an asynchronous reset and the reset value is not
     // a module-scoped constant when looking through wires and nodes, then
     // generate an error.  This implements the SFC's CheckResets pass.
-    if (!reg.getResetSignal().getType().isa<AsyncResetType>())
+    if (!isa<AsyncResetType>(reg.getResetSignal().getType()))
       continue;
     if (walkDrivers(
             reg.getResetValue(), true, true, true,
             [&](FieldRef dst, FieldRef src) {
-              if (src.isa<ConstantOp, InvalidValueOp, SpecialConstantOp>())
+              if (src.isa<ConstantOp, InvalidValueOp, SpecialConstantOp,
+                          AggregateConstantOp>())
                 return true;
               auto diag = emitError(reg.getLoc());
               auto [fieldName, rootKnown] = getFieldName(dst);
@@ -109,7 +110,7 @@ void SFCCompatPass::runOnOperation() {
     }
     ImplicitLocOpBuilder builder(inv.getLoc(), inv);
     Value replacement =
-        TypeSwitch<FIRRTLType, Value>(inv.getType())
+        FIRRTLTypeSwitch<FIRRTLType, Value>(inv.getType())
             .Case<ClockType, AsyncResetType, ResetType>(
                 [&](auto type) -> Value {
                   return builder.create<SpecialConstantOp>(

@@ -13,6 +13,8 @@
 #ifndef CIRCT_DIALECT_OM_OMDIALECT
 #define CIRCT_DIALECT_OM_OMDIALECT
 
+include "mlir/IR/OpBase.td"
+
 def OMDialect : Dialect {
   let name = "om";
   let cppNamespace = "::circt::om";
@@ -27,11 +29,22 @@ def OMDialect : Dialect {
     [Object Model Dialect Rationale](./RationaleOM.md).
   }];
 
+  let useDefaultAttributePrinterParser = 1;
   let useDefaultTypePrinterParser = 1;
+
+  // Opt-out of properties for now, must migrate by LLVM 19.  #5273.
+  let usePropertiesForAttributes = 0;
+
+  let dependentDialects = [
+    "circt::hw::HWDialect"
+  ];
 
   let extraClassDeclaration = [{
     /// Register all OM types.
     void registerTypes();
+
+    /// Register all OM types.
+    void registerAttributes();
   }];
 }
 

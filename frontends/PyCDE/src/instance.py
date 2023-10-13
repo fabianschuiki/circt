@@ -7,7 +7,7 @@ from __future__ import annotations
 from .devicedb import LocationVector
 from .module import AppID
 
-from .circt.dialects import msft, seq
+from .circt.dialects import esi, hw, msft, seq
 from .circt import ir
 
 from typing import Dict, Iterator, List, Optional, Tuple, Union
@@ -34,7 +34,10 @@ class Instance:
     self.inside_of = inside_of
     self.parent = parent
     self.root = parent.root
-    self.symbol = symbol
+    if symbol is not None:
+      self.symbol = hw.InnerSymAttr(symbol)
+    else:
+      self.symbol = None
     self._op_cache = parent.root.system._op_cache
 
   def _get_ip(self) -> ir.InsertionPoint:
@@ -90,13 +93,13 @@ class Instance:
   def name(self) -> str:
     assert self.symbol is not None, \
            "If symbol is None, name() needs to be overridden"
-    return ir.StringAttr(self.symbol).value
+    return self.symbol.symName.value
 
   @property
   def appid(self) -> Optional[AppID]:
     """Get the appid assigned to this instance or None if one was not assigned
     during generation."""
-    static_op = self._op_cache.get_sym_ops_in_module(
+    static_op = self._op_cache.get_inner_sym_ops_in_module(
         self.inside_of)[self.symbol]
     if AppID.AttributeName in static_op.attributes:
       return AppID(static_op.attributes[AppID.AttributeName])
@@ -119,40 +122,46 @@ class ModuleInstance(Instance):
   def _add_appids(self):
     """Implicitly add members for each AppID which is contained by this
     instance."""
+
     with self.root.system:
       circt_mod = self.tgt_mod.circt_mod
-    if not isinstance(circt_mod,
-                      msft.MSFTModuleOp) or circt_mod.childAppIDBases is None:
-      return
-    for name in [n.value for n in circt_mod.childAppIDBases]:
+      child_appids = ir.ArrayAttr(
+          self.root.system._appid_index.get_child_appids_of(circt_mod))
+    child_appid_names = {}
+    for id in [esi.AppIDAttr(id) for id in child_appids]:
+      if id.name not in child_appid_names:
+        child_appid_names[id.name] = {}
+      child_appid_names[id.name][id.index] = id
+
+    for (name, ids) in child_appid_names.items():
       if hasattr(self, name):
         continue
       self.__slots__.append(name)
-      setattr(self, name, _AppIDInstance(self, name))
+      setattr(self, name, _AppIDInstance(self, circt_mod, name, ids))
 
   def _create_instance(self, static_op: ir.Operation) -> Instance:
     """Create a new `Instance` which is a child of `parent` in the instance
     hierarchy and corresponds to the given static operation. The static
     operation need not be a module instantiation."""
 
-    sym_name = static_op.attributes["sym_name"]
-    if isinstance(static_op, msft.InstanceOp):
+    inner_sym = static_op.attributes["inner_sym"]
+    if isinstance(static_op, hw.InstanceOp):
       tgt_mod = self._op_cache.get_symbol_pyproxy(static_op.moduleName)
       return ModuleInstance(self,
-                            instance_sym=sym_name,
+                            instance_sym=inner_sym,
                             inside_of=self.tgt_mod,
                             tgt_mod=tgt_mod)
     if isinstance(static_op, seq.CompRegOp):
-      return RegInstance(self, self.tgt_mod, sym_name, static_op)
+      return RegInstance(self, self.tgt_mod, inner_sym, static_op)
 
-    return Instance(self, self.tgt_mod, sym_name)
+    return Instance(self, self.tgt_mod, inner_sym)
 
-  def _children(self) -> Dict[ir.StringAttr, Instance]:
+  def _children(self) -> Dict[hw.InnerSymAttr, Instance]:
     """Return a dict of MLIR StringAttr this instances' children. Cache said
     list."""
     if self._child_cache is not None:
       return self._child_cache
-    symbols_in_mod = self._op_cache.get_sym_ops_in_module(self.tgt_mod)
+    symbols_in_mod = self._op_cache.get_inner_sym_ops_in_module(self.tgt_mod)
     children = {
         sym: self._create_instance(op) for (sym, op) in symbols_in_mod.items()
     }
@@ -167,7 +176,7 @@ class ModuleInstance(Instance):
 
   def __getitem__(self, child_name: str) -> Instance:
     """Get a child instance."""
-    return self._children()[ir.StringAttr.get(child_name)]
+    return self._children()[hw.InnerSymAttr.get(ir.StringAttr.get(child_name))]
 
   def walk(self, callback):
     """Descend the instance hierarchy, calling back on each instance."""
@@ -213,47 +222,30 @@ class ModuleInstance(Instance):
 class _AppIDInstance:
   """Helper class to provide accessors to AppID'd instances."""
 
-  __slots__ = ["owner_instance", "appid_name"]
+  __slots__ = ["owner_instance", "appid_name", "appids", "circt_mod"]
 
-  def __init__(self, owner_instance: ModuleInstance, appid_name: str):
+  def __init__(self, owner_instance: ModuleInstance, circt_mod, appid_name: str,
+               appids: Dict[int, esi.AppIDAttr]):
     self.owner_instance = owner_instance
+    self.circt_mod = circt_mod
     self.appid_name = appid_name
-
-  def _search(self) -> Iterator[AppID, Instance]:
-    inner_sym_ops = self.owner_instance._op_cache.get_sym_ops_in_module(
-        self.owner_instance.tgt_mod)
-    for child in self.owner_instance._children().values():
-      # "Look through" instance hierarchy levels if the child has an AppID
-      # accessor for our name.
-      if hasattr(child, self.appid_name):
-        child_appid_inst = getattr(child, self.appid_name)
-        if not isinstance(child_appid_inst, _AppIDInstance):
-          continue
-        for c in child_appid_inst._search():
-          yield c
-
-      # Check if the AppID is local, then return the instance if it is.
-      instance_op = inner_sym_ops[child.symbol]
-      if AppID.AttributeName in instance_op.attributes:
-        try:
-          # This is the only way to test that a certain attribute is a certain
-          # attribute type. *Sigh*.
-          appid = msft.AppIDAttr(instance_op.attributes[AppID.AttributeName])
-          if appid.name == self.appid_name:
-            yield (appid, child)
-        except ValueError:
-          pass
+    self.appids = appids
 
   def __getitem__(self, index: int) -> Instance:
-    for (appid, child) in self._search():
-      if appid.index == index:
-        return child
-
-    raise IndexError(f"{self.appid_name}[{index}] not found")
+    if index not in self.appids:
+      raise IndexError(f"{self.appid_name}[{index}] not found")
+    appid = self.appids[index]
+    path = ir.ArrayAttr(
+        self.owner_instance.root.system._appid_index.get_appid_path(
+            self.circt_mod, appid))
+    ret = self.owner_instance
+    for inst_ref in path:
+      ret = ret[ir.StringAttr(hw.InnerRefAttr(inst_ref).name).value]
+    return ret
 
   def __iter__(self) -> Iterator[Instance]:
-    for (_, child) in self._search():
-      yield child
+    for appid in self.appids.values():
+      yield self[appid.index]
 
 
 class RegInstance(Instance):

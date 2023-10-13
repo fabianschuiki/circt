@@ -10,6 +10,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef CIRCT_DIALECT_SEQ_SEQTYPES
+#define CIRCT_DIALECT_SEQ_SEQTYPES
+
+include "circt/Dialect/Seq/SeqDialect.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 
 class SeqType<string name, list<Trait> traits = []> : TypeDef<SeqDialect, name, traits> { }
@@ -27,7 +31,7 @@ def HLMemType : SeqType<"HLMem",[
     The HLMemType represents the type of an addressable memory structure. The
     type is inherently multidimensional. Dimensions must be known integer values.
 
-    Note: unidimensional memories are represented as <1x{element type}> - 
+    Note: unidimensional memories are represented as <1x{element type}> -
     <{element type}> is illegal.
   }];
 
@@ -63,3 +67,30 @@ def HLMemType : SeqType<"HLMem",[
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
 }
+
+def FirMemType : SeqType<"FirMem"> {
+  let summary = "A FIRRTL-flavored memory";
+  let description = [{
+    The `!seq.firmem` type represents a FIRRTL-flavored memory declared by a
+    `seq.firmem` operation. It captures the parameters of the memory that are
+    relevant to the read, write, and read-write ports, such as width and depth.
+  }];
+  let mnemonic = "firmem";
+  let parameters = (ins
+    "uint64_t":$depth,
+    "uint32_t":$width,
+    OptionalParameter<"std::optional<uint32_t>">:$maskWidth
+  );
+  let assemblyFormat = "`<` $depth `x` $width (`,` `mask` $maskWidth^)? `>`";
+}
+
+def ClockType : SeqType<"Clock"> {
+  let summary = "A type for clock-carrying wires";
+  let description = [{
+    The `!seq.clock` type represents signals which can be used to drive the
+    clock input of sequential operations.
+  }];
+  let mnemonic = "clock";
+}
+
+#endif // CIRCT_DIALECT_SEQ_SEQTYPES

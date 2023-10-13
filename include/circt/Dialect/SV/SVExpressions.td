@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 include "mlir/Interfaces/InferTypeOpInterface.td"
+include "circt/Dialect/HW/HWTypes.td"
 include "circt/Dialect/SV/SVTypes.td"
 
 def HWValueOrInOutType : AnyTypeOf<[HWValueType, InOutType]>;
@@ -99,7 +100,8 @@ def VerbatimExprSEOp : SVOp<"verbatim.expr.se", [HasCustomSSAName]> {
   ];
 }
 
-def MacroRefExprOp : SVOp<"macro.ref", [Pure, HasCustomSSAName]> {
+def MacroRefExprOp : SVOp<"macro.ref", [Pure, HasCustomSSAName,
+        DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "Expression to refer to a SystemVerilog macro";
   let description = [{
     This operation produces a value by referencing a named macro.
@@ -109,20 +111,24 @@ def MacroRefExprOp : SVOp<"macro.ref", [Pure, HasCustomSSAName]> {
     and emitted inline by the Verilog emitter.
     }];
 
-  let arguments = (ins MacroIdentAttr:$ident);
+  let arguments = (ins FlatSymbolRefAttr:$macroName, Variadic<AnyType>:$inputs);
   let results = (outs HWValueOrInOutType:$result);
 
-  let assemblyFormat = "`<` $ident `>` attr-dict `:` type($result)";
+  let assemblyFormat = "$macroName `(` $inputs `)` attr-dict `:` functional-type($inputs, $result)";
 
   let builders = [
     OpBuilder<(ins "Type":$resultType, "StringRef":$ident),
                "build(odsBuilder, odsState, resultType, "
-                 "::circt::sv::MacroIdentAttr::get("
-                   "$_builder.getContext(), ident));">
+                "FlatSymbolRefAttr::get($_builder.getContext(), ident), {});">
   ];
+
+  let extraClassDeclaration = [{
+    MacroDeclOp getReferencedMacro(const hw::HWSymbolCache *cache);
+  }];
 }
 
-def MacroRefExprSEOp : SVOp<"macro.ref.se", [HasCustomSSAName]> {
+def MacroRefExprSEOp : SVOp<"macro.ref.se", [HasCustomSSAName,
+        DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "Expression to refer to a SystemVerilog macro";
   let description = [{
     This operation produces a value by referencing a named macro.
@@ -132,17 +138,20 @@ def MacroRefExprSEOp : SVOp<"macro.ref.se", [HasCustomSSAName]> {
     duplicated, but can be emitted inline by the Verilog emitter.
     }];
 
-  let arguments = (ins MacroIdentAttr:$ident);
+  let arguments = (ins FlatSymbolRefAttr:$macroName, Variadic<AnyType>:$inputs);
   let results = (outs HWValueOrInOutType:$result);
 
-  let assemblyFormat = "`<` $ident `>` attr-dict `:` type($result)";
+  let assemblyFormat = "$macroName `(` $inputs `)` attr-dict `:` functional-type($inputs, $result)";
 
   let builders = [
     OpBuilder<(ins "Type":$resultType, "StringRef":$ident),
                "build(odsBuilder, odsState, resultType, "
-                 "::circt::sv::MacroIdentAttr::get("
-                   "$_builder.getContext(), ident));">
+                "FlatSymbolRefAttr::get($_builder.getContext(), ident), {});">
   ];
+
+  let extraClassDeclaration = [{
+    MacroDeclOp getReferencedMacro(const hw::HWSymbolCache *cache);
+  }];
 }
 
 def ConstantXOp : SVOp<"constantX", [Pure, HasCustomSSAName]> {
@@ -188,7 +197,7 @@ def ConstantStrOp : SVOp<"constantStr", [Pure]> {
     }];
 
   let arguments = (ins StrAttr:$str);
-  let results = (outs StringType:$result);
+  let results = (outs HWStringType:$result);
   let assemblyFormat = " $str attr-dict";
 }
 
@@ -232,6 +241,7 @@ def IndexedPartSelectOp
                                           std::optional<Location> loc,
                                           ValueRange operands,
                                           DictionaryAttr attrs,
+                                          mlir::OpaqueProperties properties,
                                           mlir::RegionRange regions,
                                           SmallVectorImpl<Type> &results);
   }];

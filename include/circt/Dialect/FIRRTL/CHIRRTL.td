@@ -21,6 +21,7 @@ include "circt/Dialect/FIRRTL/FIRRTLTypes.td"
 include "circt/Dialect/FIRRTL/FIRRTLOpInterfaces.td"
 include "circt/Dialect/FIRRTL/FIRRTLAttributes.td"
 include "circt/Dialect/FIRRTL/FIRRTLEnums.td"
+include "circt/Dialect/HW/HWOpInterfaces.td"
 include "circt/Dialect/HW/HWTypes.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
@@ -37,6 +38,9 @@ def CHIRRTLDialect : Dialect {
   let dependentDialects = ["circt::firrtl::FIRRTLDialect"];
 
   let useDefaultTypePrinterParser = 1;
+
+  // Opt-out of properties for now, must migrate by LLVM 19.  #5273.
+  let usePropertiesForAttributes = 0;
 }
 
 //===----------------------------------------------------------------------===//
@@ -102,7 +106,7 @@ def CMemoryPortType : TypeDef<CHIRRTLDialect, "CMemoryPort"> {
 class CHIRRTLOp<string mnemonic, list<Trait> traits = []> :
     Op<CHIRRTLDialect, mnemonic, traits>;
 
-def CombMemOp : CHIRRTLOp<"combmem", [HasCustomSSAName, FNamableOp]> {
+def CombMemOp : CHIRRTLOp<"combmem", [HasCustomSSAName, DeclareOpInterfaceMethods<InnerSymbol,["getTargetResultIndex"]>, FNamableOp]> {
   let summary = "Define a new combinational memory";
   let description = [{
     Define a new behavioral combinational memory. Combinational memories have a
@@ -119,12 +123,12 @@ def CombMemOp : CHIRRTLOp<"combmem", [HasCustomSSAName, FNamableOp]> {
     OpBuilder<(ins "firrtl::FIRRTLBaseType":$elementType, "uint64_t":$numElements,
                    "mlir::StringRef":$name, "firrtl::NameKindEnum":$nameKind,
                    "ArrayAttr":$annotations,
-                   CArg<"StringAttr", "StringAttr()">:$inner_sym,
+                   CArg<"StringAttr", "StringAttr()">:$innerSym,
                    CArg<"firrtl::MemoryInitAttr", "firrtl::MemoryInitAttr{}">:$init)>
   ];
 }
 
-def SeqMemOp : CHIRRTLOp<"seqmem", [HasCustomSSAName, FNamableOp]> {
+def SeqMemOp : CHIRRTLOp<"seqmem", [HasCustomSSAName, DeclareOpInterfaceMethods<InnerSymbol,["getTargetResultIndex"]>, FNamableOp]> {
   let summary = "Define a new sequential memory";
   let description = [{
     Define a new behavioral sequential memory.  Sequential memories have a
@@ -139,9 +143,9 @@ def SeqMemOp : CHIRRTLOp<"seqmem", [HasCustomSSAName, FNamableOp]> {
                          custom<SeqMemOp>(attr-dict) `:` qualified(type($result))}];
   let builders = [
     OpBuilder<(ins "firrtl::FIRRTLBaseType":$elementType, "uint64_t":$numElements,
-                   "RUWAttr":$ruw, "mlir::StringRef":$name,
+                   "firrtl::RUWAttr":$ruw, "mlir::StringRef":$name,
                    "firrtl::NameKindEnum":$nameKind, "ArrayAttr":$annotations,
-                   CArg<"StringAttr", "StringAttr()">:$inner_sym,
+                   CArg<"StringAttr", "StringAttr()">:$innerSym,
                    CArg<"firrtl::MemoryInitAttr", "firrtl::MemoryInitAttr{}">:$init)>
   ];
 }
@@ -173,7 +177,7 @@ def MemoryPortOp : CHIRRTLOp<"memoryport", [InferTypeOpInterface,
 
   let builders = [
     OpBuilder<(ins "::mlir::Type":$dataType, "::mlir::Value":$memory,
-                   "MemDirAttr":$direction, CArg<"StringRef", "{}">:$name,
+                   "firrtl::MemDirAttr":$direction, CArg<"StringRef", "{}">:$name,
                    CArg<"ArrayRef<Attribute>","{}">:$annotations)>
   ];
 
@@ -188,6 +192,7 @@ def MemoryPortOp : CHIRRTLOp<"memoryport", [InferTypeOpInterface,
                                           std::optional<Location> loc,
                                           ValueRange operands,
                                           DictionaryAttr attrs,
+                                          mlir::OpaqueProperties properties,
                                           mlir::RegionRange regions,
                                           SmallVectorImpl<Type> &results);
   }];
@@ -244,6 +249,7 @@ def MemoryDebugPortOp : CHIRRTLOp<"debugport", [InferTypeOpInterface,
                                           std::optional<Location> loc,
                                           ValueRange operands,
                                           DictionaryAttr attrs,
+                                          mlir::OpaqueProperties properties,
                                           mlir::RegionRange regions,
                                           SmallVectorImpl<Type> &results);
   }];

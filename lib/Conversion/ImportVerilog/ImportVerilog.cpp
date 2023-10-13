@@ -17,18 +17,47 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Support/Timing.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
+<<<<<<< HEAD
 #include "slang/diagnostics/DiagnosticClient.h"
 #include "slang/driver/Driver.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/Support/SourceMgr.h"
 
+    =======
+#include "llvm/ADT/Hashing.h"
+#include "llvm/Support/SourceMgr.h"
+
+#include "slang/diagnostics/DiagnosticClient.h"
+#include "slang/driver/Driver.h"
+#include "slang/parsing/Preprocessor.h"
+#include "slang/syntax/SyntaxPrinter.h"
+#include "slang/util/Version.h"
+
+    using namespace mlir;
+>>>>>>> slang-frontend/slang-frontend
 using namespace circt;
 using namespace ImportVerilog;
 
 using llvm::SourceMgr;
 
+<<<<<<< HEAD
 //===----------------------------------------------------------------------===//
 // Driver
+=======
+std::string circt::getSlangVersion() {
+  std::string buffer;
+  llvm::raw_string_ostream os(buffer);
+  os << "slang version ";
+  os << slang::VersionInfo::getMajor() << ".";
+  os << slang::VersionInfo::getMinor() << ".";
+  os << slang::VersionInfo::getPatch() << "+";
+  os << slang::VersionInfo::getHash();
+  return buffer;
+}
+
+//===----------------------------------------------------------------------===//
+// Diagnostics
+>>>>>>> slang-frontend/slang-frontend
 //===----------------------------------------------------------------------===//
 
 /// Convert a slang `SourceLocation` to an MLIR `Location`.
@@ -92,6 +121,7 @@ public:
                                           getBufferFilePath, loc);
   }
 
+<<<<<<< HEAD
   static mlir::DiagnosticSeverity
   getSeverity(slang::DiagnosticSeverity severity) {
     switch (severity) {
@@ -106,6 +136,21 @@ public:
     }
     llvm_unreachable("all slang diagnostic severities should be handled");
     return mlir::DiagnosticSeverity::Error;
+=======
+  static DiagnosticSeverity getSeverity(slang::DiagnosticSeverity severity) {
+    switch (severity) {
+    case slang::DiagnosticSeverity::Fatal:
+    case slang::DiagnosticSeverity::Error:
+      return DiagnosticSeverity::Error;
+    case slang::DiagnosticSeverity::Warning:
+      return DiagnosticSeverity::Warning;
+    case slang::DiagnosticSeverity::Ignored:
+    case slang::DiagnosticSeverity::Note:
+      return DiagnosticSeverity::Remark;
+    }
+    llvm_unreachable("all slang diagnostic severities should be handled");
+    return DiagnosticSeverity::Error;
+>>>>>>> slang-frontend/slang-frontend
   }
 
 private:
@@ -130,34 +175,59 @@ struct DenseMapInfo<slang::BufferID> {
 };
 } // namespace llvm
 
-static mlir::OwningOpRef<mlir::ModuleOp>
-importVerilogWithExceptions(SourceMgr &sourceMgr, MLIRContext *context,
-                            mlir::TimingScope &ts) {
-  // Use slang's driver which conveniently packages a lot of the things we need
-  // for compilation.
+//===----------------------------------------------------------------------===//
+// Driver
+//===----------------------------------------------------------------------===//
+
+static ImportVerilogOptions defaultOptions;
+
+namespace {
+struct ImportContext {
+  MLIRContext *mlirContext;
+  TimingScope &ts;
+  const ImportVerilogOptions &options;
+
+  // Use slang's driver which conveniently packages a lot of the things we
+  // need for compilation.
   slang::driver::Driver driver;
 
-  // We keep a separate map from slang's buffers to the original MLIR file name
+  // A separate mapping from slang's buffers to the original MLIR file name
   // since slang's `SourceLocation::getFileName` returns a modified version that
   // is nice for human consumption (proximate paths, just file names, etc.), but
   // breaks MLIR's assumption that the diagnostics report the exact file paths
   // that appear in the `SourceMgr`. We use this separate map to lookup the
   // exact paths and use those for reporting.
+  //
   // See: https://github.com/MikePopoloski/slang/discussions/658
   SmallDenseMap<slang::BufferID, StringRef> bufferFilePaths;
-  auto getBufferFilePath = [&](slang::BufferID id) {
-    return bufferFilePaths.lookup(id);
-  };
 
-  auto diagClient =
-      std::make_shared<MlirDiagnosticClient>(context, getBufferFilePath);
+  ImportContext(MLIRContext *mlirContext, TimingScope &ts,
+                const ImportVerilogOptions *options)
+      : mlirContext(mlirContext), ts(ts),
+        options(options ? *options : defaultOptions) {}
+
+  LogicalResult prepareDriver(SourceMgr &sourceMgr);
+  LogicalResult importVerilog(ModuleOp module);
+  LogicalResult preprocessVerilog(llvm::raw_ostream &os);
+};
+} // namespace
+
+/// Populate the Slang driver with source files from the given `sourceMgr`, and
+/// configure driver options based on the `ImportVerilogOptions` passed to the
+/// `ImportContext` constructor.
+LogicalResult ImportContext::prepareDriver(SourceMgr &sourceMgr) {
+  // Use slang's driver which conveniently packages a lot of the things we
+  // need for compilation.
+  auto diagClient = std::make_shared<MlirDiagnosticClient>(
+      mlirContext,
+      [&](slang::BufferID id) { return bufferFilePaths.lookup(id); });
   driver.diagEngine.addClient(diagClient);
 
   // Populate the source manager with the source files.
-  // NOTE: This is a bit ugly since we're essentially copying the Verilog source
-  // text in memory. At a later stage we might want to extend slang's
-  // SourceManager such that it can contain non-owned buffers. This will do for
-  // now.
+  // NOTE: This is a bit ugly since we're essentially copying the Verilog
+  // source text in memory. At a later stage we might want to extend slang's
+  // SourceManager such that it can contain non-owned buffers. This will do
+  // for now.
   for (unsigned i = 0, e = sourceMgr.getNumBuffers(); i < e; ++i) {
     const llvm::MemoryBuffer *mlirBuffer = sourceMgr.getMemoryBuffer(i + 1);
     auto slangBuffer = driver.sourceManager.assignText(
@@ -166,6 +236,43 @@ importVerilogWithExceptions(SourceMgr &sourceMgr, MLIRContext *context,
     bufferFilePaths.insert({slangBuffer.id, mlirBuffer->getBufferIdentifier()});
   }
 
+  // Populate the driver options.
+  driver.options.includeDirs = options.includeDirs;
+  driver.options.includeSystemDirs = options.includeSystemDirs;
+  driver.options.libDirs = options.libDirs;
+  driver.options.libExts = options.libExts;
+  driver.options.excludeExts.insert(options.excludeExts.begin(),
+                                    options.excludeExts.end());
+  driver.options.ignoreDirectives = options.ignoreDirectives;
+
+  driver.options.maxIncludeDepth = options.maxIncludeDepth;
+  driver.options.defines = options.defines;
+  driver.options.undefines = options.undefines;
+  driver.options.librariesInheritMacros = options.librariesInheritMacros;
+
+  driver.options.timeScale = options.timeScale;
+  driver.options.allowUseBeforeDeclare = options.allowUseBeforeDeclare;
+  driver.options.ignoreUnknownModules = options.ignoreUnknownModules;
+  driver.options.onlyLint = options.onlyLint;
+  driver.options.topModules = options.topModules;
+  driver.options.paramOverrides = options.paramOverrides;
+
+  driver.options.errorLimit = options.errorLimit;
+  driver.options.warningOptions = options.warningOptions;
+  driver.options.suppressWarningsPaths = options.suppressWarningsPaths;
+
+  driver.options.singleUnit = options.singleUnit;
+  driver.options.libraryFiles = options.libraryFiles;
+
+  for (auto &dir : sourceMgr.getIncludeDirs())
+    driver.options.includeDirs.push_back(dir);
+
+  return success(driver.processOptions());
+}
+
+/// Parse and elaborate the prepared source files, and populate the given MLIR
+/// `module` with corresponding operations.
+LogicalResult ImportContext::importVerilog(ModuleOp module) {
   // Parse the input.
   auto parseTimer = ts.nest("Verilog parser");
   bool parseSuccess = driver.parseAllSources();
@@ -177,45 +284,105 @@ importVerilogWithExceptions(SourceMgr &sourceMgr, MLIRContext *context,
   for (auto &diag : compilation->getAllDiagnostics())
     driver.diagEngine.issue(diag);
   if (!parseSuccess || driver.diagEngine.getNumErrors() > 0)
-    return {};
+    return failure();
   compileTimer.stop();
 
   // Traverse the parsed Verilog AST and map it to the equivalent CIRCT ops.
-  context->loadDialect<moore::MooreDialect>();
-  mlir::OwningOpRef<ModuleOp> module(
-      ModuleOp::create(UnknownLoc::get(context)));
+  mlirContext->loadDialect<moore::MooreDialect>();
   auto conversionTimer = ts.nest("Verilog to dialect mapping");
-  Context ctx(module.get(), driver.sourceManager, getBufferFilePath,
-              *compilation);
-  if (failed(ctx.convertCompilation()))
-    return {};
+  Context context(module, driver.sourceManager, [&](slang::BufferID id) {
+    return bufferFilePaths.lookup(id);
+  });
+  if (failed(context.convertCompilation(*compilation)))
+    return failure();
   conversionTimer.stop();
 
   // Run the verifier on the constructed module to ensure it is clean.
   auto verifierTimer = ts.nest("Post-parse verification");
-  if (failed(verify(*module)))
-    return {};
-  return module;
+  return verify(module);
 }
 
-// Parse the specified Verilog inputs into the specified MLIR context.
-mlir::OwningOpRef<mlir::ModuleOp> circt::importVerilog(SourceMgr &sourceMgr,
-                                                       MLIRContext *context,
-                                                       mlir::TimingScope &ts) {
+/// Preprocess the prepared source files and print them to the given output
+/// stream.
+LogicalResult ImportContext::preprocessVerilog(llvm::raw_ostream &os) {
+  for (auto &buffer : driver.buffers) {
+    slang::BumpAllocator alloc;
+    slang::Diagnostics diagnostics;
+    slang::parsing::Preprocessor preprocessor(
+        driver.sourceManager, alloc, diagnostics, driver.createOptionBag());
+    preprocessor.pushSource(buffer);
+
+    slang::syntax::SyntaxPrinter output;
+    output.setIncludeComments(false);
+    while (true) {
+      slang::parsing::Token token = preprocessor.next();
+      output.print(token);
+      if (token.kind == slang::parsing::TokenKind::EndOfFile)
+        break;
+    }
+
+    for (auto &diag : diagnostics) {
+      if (diag.isError()) {
+        driver.diagEngine.issue(diag);
+        return failure();
+      }
+    }
+    os << output.str();
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Entry Points
+//===----------------------------------------------------------------------===//
+
+/// Execute a callback and report any thrown exceptions as "internal slang
+/// error" MLIR diagnostics.
+static LogicalResult
+catchExceptions(llvm::function_ref<LogicalResult()> callback) {
   try {
-    return importVerilogWithExceptions(sourceMgr, context, ts);
+    return callback();
   } catch (const std::exception &e) {
-    mlir::emitError(UnknownLoc::get(context), "internal slang error: ")
-        << e.what();
-    return {};
+    return emitError(UnknownLoc(), "internal slang error: ") << e.what();
   }
 }
 
+// Parse the specified Verilog inputs into the specified MLIR context.
+LogicalResult circt::importVerilog(SourceMgr &sourceMgr,
+                                   MLIRContext *mlirContext, TimingScope &ts,
+                                   ModuleOp module,
+                                   const ImportVerilogOptions *options) {
+  return catchExceptions([&] {
+    ImportContext context(mlirContext, ts, options);
+    if (failed(context.prepareDriver(sourceMgr)))
+      return failure();
+    return context.importVerilog(module);
+  });
+}
+
+/// Run the files in a source manager through Slang's Verilog preprocessor and
+/// emit the result to the given output stream.
+LogicalResult circt::preprocessVerilog(SourceMgr &sourceMgr,
+                                       MLIRContext *mlirContext,
+                                       TimingScope &ts, llvm::raw_ostream &os,
+                                       const ImportVerilogOptions *options) {
+  return catchExceptions([&] {
+    ImportContext context(mlirContext, ts, options);
+    if (failed(context.prepareDriver(sourceMgr)))
+      return failure();
+    return context.preprocessVerilog(os);
+  });
+}
+
 void circt::registerFromVerilogTranslation() {
-  static mlir::TranslateToMLIRRegistration fromVerilog(
+  static TranslateToMLIRRegistration fromVerilog(
       "import-verilog", "import Verilog or SystemVerilog",
       [](llvm::SourceMgr &sourceMgr, MLIRContext *context) {
-        mlir::TimingScope ts;
-        return importVerilog(sourceMgr, context, ts);
+        TimingScope ts;
+        OwningOpRef<ModuleOp> module(
+            ModuleOp::create(UnknownLoc::get(context)));
+        if (failed(importVerilog(sourceMgr, context, ts, module.get())))
+          module = {};
+        return module;
       });
 }

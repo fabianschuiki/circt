@@ -26,10 +26,6 @@
 namespace circt {
 namespace msft {
 
-/// TODO: Migrate these to some sort of OpInterface shared with hw.
-bool isAnyModule(Operation *module);
-hw::ModulePortInfo getModulePortInfo(Operation *op);
-
 /// Utility for creating {0, 1, 2, ..., size}.
 SmallVector<unsigned> makeSequentialRange(unsigned size);
 

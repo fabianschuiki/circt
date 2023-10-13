@@ -16,7 +16,6 @@
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWPasses.h"
 #include "circt/Dialect/HW/HWSymCache.h"
-#include "circt/Dialect/SV/SVPasses.h"
 #include "circt/Support/Namespace.h"
 #include "circt/Support/ValueMapper.h"
 #include "mlir/IR/Builders.h"
@@ -61,16 +60,17 @@ static FailureOr<Value> narrowValueToArrayWidth(OpBuilder &builder, Value array,
   OpBuilder::InsertionGuard g(builder);
   builder.setInsertionPointAfterValue(value);
   auto arrayType = array.getType().cast<hw::ArrayType>();
-  unsigned hiBit = llvm::Log2_64_Ceil(arrayType.getSize());
+  unsigned hiBit = llvm::Log2_64_Ceil(arrayType.getNumElements());
 
-  return hiBit == 0 ? builder
-                          .create<hw::ConstantOp>(value.getLoc(),
-                                                  APInt(arrayType.getSize(), 0))
-                          .getResult()
-                    : builder
-                          .create<comb::ExtractOp>(value.getLoc(), value,
-                                                   /*lowBit=*/0, hiBit)
-                          .getResult();
+  return hiBit == 0
+             ? builder
+                   .create<hw::ConstantOp>(value.getLoc(),
+                                           APInt(arrayType.getNumElements(), 0))
+                   .getResult()
+             : builder
+                   .create<comb::ExtractOp>(value.getLoc(), value,
+                                            /*lowBit=*/0, hiBit)
+                   .getResult();
 }
 
 static hw::HWModuleOp targetModuleOp(hw::InstanceOp instanceOp,
@@ -134,8 +134,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto inputType = type_cast<ArrayType>(op.getInput().getType());
     Type targetIndexType = IntegerType::get(
-        getContext(),
-        inputType.getSize() == 1 ? 1 : llvm::Log2_64_Ceil(inputType.getSize()));
+        getContext(), inputType.getNumElements() == 1
+                          ? 1
+                          : llvm::Log2_64_Ceil(inputType.getNumElements()));
 
     if (op.getIndex().getType().getIntOrFloatBitWidth() ==
         targetIndexType.getIntOrFloatBitWidth())
@@ -273,20 +274,20 @@ static LogicalResult specializeModule(
   auto *ctx = builder.getContext();
   // Update the types of the source module ports based on evaluating any
   // parametric in/output ports.
-  auto ports = source.getPorts();
-  for (auto in : llvm::enumerate(source.getFunctionType().getInputs())) {
+  ModulePortInfo ports(source.getPortList());
+  for (auto in : llvm::enumerate(source.getInputTypes())) {
     FailureOr<Type> resType =
         evaluateParametricType(source.getLoc(), parameters, in.value());
     if (failed(resType))
       return failure();
-    ports.inputs[in.index()].type = *resType;
+    ports.atInput(in.index()).type = *resType;
   }
-  for (auto out : llvm::enumerate(source.getFunctionType().getResults())) {
+  for (auto out : llvm::enumerate(source.getOutputTypes())) {
     FailureOr<Type> resolvedType =
         evaluateParametricType(source.getLoc(), parameters, out.value());
     if (failed(resolvedType))
       return failure();
-    ports.outputs[out.index()].type = *resolvedType;
+    ports.atOutput(out.index()).type = *resolvedType;
   }
 
   // Create the specialized module using the evaluated port info.
@@ -302,8 +303,8 @@ static LogicalResult specializeModule(
   // cloning in the presence of backedges.
   BackedgeBuilder bb(builder, source.getLoc());
   ValueMapper mapper(&bb);
-  for (auto &&[src, dst] :
-       llvm::zip(source.getArguments(), target.getArguments()))
+  for (auto &&[src, dst] : llvm::zip(source.getBodyBlock()->getArguments(),
+                                     target.getBodyBlock()->getArguments()))
     mapper.set(src, dst);
   builder.setInsertionPointToStart(target.getBodyBlock());
 

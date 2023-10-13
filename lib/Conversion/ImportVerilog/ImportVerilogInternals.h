@@ -18,74 +18,85 @@
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/SyntaxVisitor.h"
 #include "slang/text/SourceManager.h"
+<<<<<<< HEAD
 #include "llvm/ADT/ScopedHashTable.h"
+    =======
+>>>>>>> slang-frontend/slang-frontend
 #include "llvm/Support/Debug.h"
 #include <queue>
 
 #define DEBUG_TYPE "import-verilog"
 
-namespace circt {
-namespace ImportVerilog {
+    namespace circt {
+  namespace ImportVerilog {
 
-struct Context {
-  Context(mlir::ModuleOp intoModuleOp,
-          const slang::SourceManager &sourceManager,
-          std::function<StringRef(slang::BufferID)> getBufferFilePath,
-          slang::ast::Compilation &compilation)
+  struct Context {
+    Context(mlir::ModuleOp intoModuleOp,
+            const slang::SourceManager &sourceManager,
+<<<<<<< HEAD
+            std::function<StringRef(slang::BufferID)> getBufferFilePath,
+            slang::ast::Compilation &compilation)
+        : intoModuleOp(intoModuleOp), sourceManager(sourceManager),
+          getBufferFilePath(std::move(getBufferFilePath)),
+          compilation(compilation),
+=======
+          std::function<StringRef(slang::BufferID)> getBufferFilePath)
       : intoModuleOp(intoModuleOp), sourceManager(sourceManager),
         getBufferFilePath(std::move(getBufferFilePath)),
-        compilation(compilation),
-        rootBuilder(OpBuilder::atBlockEnd(intoModuleOp.getBody())),
-        symbolTable(intoModuleOp) {}
-  Context(const Context &) = delete;
+>>>>>>> slang-frontend/slang-frontend
+          rootBuilder(OpBuilder::atBlockEnd(intoModuleOp.getBody())),
+          symbolTable(intoModuleOp) {}
+    Context(const Context &) = delete;
 
-  /// Return the MLIR context.
-  MLIRContext *getContext() { return intoModuleOp.getContext(); }
+    /// Return the MLIR context.
+    MLIRContext *getContext() { return intoModuleOp.getContext(); }
 
-  /// Convert a slang `SourceLocation` into an MLIR `Location`.
-  Location convertLocation(slang::SourceLocation loc);
+    /// Convert a slang `SourceLocation` into an MLIR `Location`.
+    Location convertLocation(slang::SourceLocation loc);
 
-  /// Convert a slang type into an MLIR type. Returns null on failure. Uses the
-  /// provided location for error reporting, or tries to guess one from the
-  /// given type. Types tend to have unreliable location information, so it's
-  /// generally a good idea to pass in a location.
-  Type convertType(const slang::ast::Type &type, LocationAttr loc = {});
-  Type convertType(const slang::ast::DeclaredType &type);
+    /// Convert a slang type into an MLIR type. Returns null on failure. Uses
+    /// the provided location for error reporting, or tries to guess one from
+    /// the given type. Types tend to have unreliable location information, so
+    /// it's generally a good idea to pass in a location.
+    Type convertType(const slang::ast::Type &type, LocationAttr loc = {});
+    Type convertType(const slang::ast::DeclaredType &type);
 
-  LogicalResult convertCompilation();
-  Operation *convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
-  LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
+    LogicalResult convertCompilation(slang::ast::Compilation &compilation);
+    Operation *
+    convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
+    LogicalResult
+    convertModuleBody(const slang::ast::InstanceBodySymbol *module);
 
-  mlir::ModuleOp intoModuleOp;
-  const slang::SourceManager &sourceManager;
-  std::function<StringRef(slang::BufferID)> getBufferFilePath;
-  slang::ast::Compilation &compilation;
+    mlir::ModuleOp intoModuleOp;
+    const slang::SourceManager &sourceManager;
+    std::function<StringRef(slang::BufferID)> getBufferFilePath;
 
-  /// A builder for modules and other top-level ops.
-  OpBuilder rootBuilder;
-  /// A symbol table of the MLIR module we are emitting into.
-  SymbolTable symbolTable;
+    /// A builder for modules and other top-level ops.
+    OpBuilder rootBuilder;
+    /// A symbol table of the MLIR module we are emitting into.
+    SymbolTable symbolTable;
 
-  /// The symbol table maps a variable name to a value in the current scope.
-  /// Entering a function creates a new scope, and the function arguments are
-  /// added to the mapping. When the processing of a function is terminated, the
-  /// scope is destroyed and the mappings created in this scope are dropped.
-  llvm::ScopedHashTable<StringRef, mlir::Value> varSymbolTable;
+    /// The symbol table maps a variable name to a value in the current scope.
+    /// Entering a function creates a new scope, and the function arguments are
+    /// added to the mapping. When the processing of a function is terminated,
+    /// the scope is destroyed and the mappings created in this scope are
+    /// dropped.
+    llvm::ScopedHashTable<StringRef, mlir::Value> varSymbolTable;
 
-  /// How we have lowered modules to MLIR.
-  DenseMap<const slang::ast::InstanceBodySymbol *, Operation *> moduleOps;
-  /// A list of modules for which the header has been created, but the body has
-  /// not been converted yet.
-  std::queue<const slang::ast::InstanceBodySymbol *> moduleWorklist;
-};
+    /// How we have lowered modules to MLIR.
+    DenseMap<const slang::ast::InstanceBodySymbol *, Operation *> moduleOps;
+    /// A list of modules for which the header has been created, but the body
+    /// has not been converted yet.
+    std::queue<const slang::ast::InstanceBodySymbol *> moduleWorklist;
+  };
 
-/// Convert a slang `SourceLocation` to an MLIR `Location`.
-Location convertLocation(
-    MLIRContext *context, const slang::SourceManager &sourceManager,
-    llvm::function_ref<StringRef(slang::BufferID)> getBufferFilePath,
-    slang::SourceLocation loc);
+  /// Convert a slang `SourceLocation` to an MLIR `Location`.
+  Location convertLocation(
+      MLIRContext *context, const slang::SourceManager &sourceManager,
+      llvm::function_ref<StringRef(slang::BufferID)> getBufferFilePath,
+      slang::SourceLocation loc);
 
-} // namespace ImportVerilog
+  } // namespace ImportVerilog
 } // namespace circt
 
 #endif // CONVERSION_IMPORTVERILOG_IMPORTVERILOGINTERNALS_H

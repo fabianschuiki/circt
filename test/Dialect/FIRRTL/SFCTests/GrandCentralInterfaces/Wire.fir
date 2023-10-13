@@ -1,9 +1,9 @@
-; RUN: firtool --lowering-options=emitBindComments --annotation-file %s.anno.json --annotation-file %s.Extract.anno.json %s | FileCheck %s --check-prefixes CHECK,EXTRACT
-; RUN: firtool --lowering-options=emitBindComments --preserve-values=named --annotation-file %s.anno.json %s | FileCheck %s --check-prefixes CHECK,NOEXTRACT
-; RUN: firtool --lowering-options=emitBindComments --annotation-file %s.anno.json --annotation-file %s.Extract.anno.json %s --annotation-file %s.YAML.anno.json | FileCheck %s --check-prefixes YAML
-; RUN: firtool --lowering-options=emitBindComments --split-verilog --annotation-file %s.anno.json %s -o %t.folder > %t  && cat %t.folder/MyView_companion.sv  | FileCheck %s --check-prefixes MYVIEW_COMPANION
-; RUN: firtool --lowering-options=emitBindComments --annotation-file %s.anno.json --annotation-file %s.Prefix.anno.json %s | FileCheck %s --check-prefixes PREFIX
-; RUN: firtool --annotation-file %s.anno.json %s --disable-opt
+; RUN: firtool --no-dedup --lowering-options=emitBindComments --annotation-file %s.anno.json --annotation-file %s.Extract.anno.json %s | FileCheck %s --check-prefixes CHECK,EXTRACT
+; RUN: firtool --no-dedup --lowering-options=emitBindComments --preserve-values=named --annotation-file %s.anno.json %s | FileCheck %s --check-prefixes CHECK,NOEXTRACT
+; RUN: firtool --no-dedup --lowering-options=emitBindComments --annotation-file %s.anno.json --annotation-file %s.Extract.anno.json %s --annotation-file %s.YAML.anno.json | FileCheck %s --check-prefixes YAML
+; RUN: firtool --no-dedup --lowering-options=emitBindComments --split-verilog --annotation-file %s.anno.json %s -o %t.folder > %t  && cat %t.folder/MyView_companion.sv  | FileCheck %s --check-prefixes MYVIEW_COMPANION
+; RUN: firtool --no-dedup --lowering-options=emitBindComments --annotation-file %s.anno.json --annotation-file %s.Prefix.anno.json %s | FileCheck %s --check-prefixes PREFIX
+; RUN: firtool --no-dedup --annotation-file %s.anno.json %s --disable-opt
 
 circuit Top :
   extmodule BlackBox_DUT :
@@ -218,9 +218,9 @@ circuit Top :
     ; NOEXTRACT-NEXT:   assign MyView.sub_vecOfBundle[1].uint = [[DUT_submodule_w_vecOfBundle_1_uint:[a-zA-Z0-9_]+]];
     ; NOEXTRACT-NEXT:   assign MyView.ext_port_1 = [[ExtModuleWithPort_source_1:[a-zA-Z0-9_]+]];
     ; NOEXTRACT:        Tap tap (
-    ; NOEXTRACT-NEXT:     .b     (r),
     ; NOEXTRACT-NEXT:     .clock (clock),
-    ; NOEXTRACT-NEXT:     .a     (_tap_a)
+    ; NOEXTRACT-NEXT:     .a     (_tap_a),
+    ; NOEXTRACT-NEXT:     .b     (r)
     ; NOEXTRACT-NEXT:   );
     ; NOEXTRACT-NEXT: endmodule
 
@@ -243,12 +243,12 @@ circuit Top :
     ; EXTRACT-NEXT:          .[[in_vecOfBundle_1_uint_port:[a-zA-Z0-9_]+]]               (in_vecOfBundle_1_uint),
     ; EXTRACT-NEXT:          .[[in_otherOther_other_sint_port:[a-zA-Z0-9_]+]]            (in_otherOther_other_sint),
     ; EXTRACT-NEXT:          .[[in_otherOther_other_uint_port:[a-zA-Z0-9_]+]]            (in_otherOther_other_uint),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vec_0_port:[a-zA-Z0-9_]+]]              (DUT.submodule.in_vec_0),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vec_1_port:[a-zA-Z0-9_]+]]              (DUT.submodule.in_vec_1),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_0_sint_port:[a-zA-Z0-9_]+]] (DUT.submodule.in_vecOfBundle_0_sint),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_0_uint_port:[a-zA-Z0-9_]+]] (DUT.submodule.in_vecOfBundle_0_uint),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_1_sint_port:[a-zA-Z0-9_]+]] (DUT.submodule.in_vecOfBundle_1_sint),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_1_uint_port:[a-zA-Z0-9_]+]] (DUT.submodule.in_vecOfBundle_1_uint),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vec_0_port:[a-zA-Z0-9_]+]]              (DUT.submodule.in_vec_0_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vec_1_port:[a-zA-Z0-9_]+]]              (DUT.submodule.in_vec_1_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_0_sint_port:[a-zA-Z0-9_]+]] (DUT.submodule.in_vecOfBundle_0_sint_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_0_uint_port:[a-zA-Z0-9_]+]] (DUT.submodule.in_vecOfBundle_0_uint_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_1_sint_port:[a-zA-Z0-9_]+]] (DUT.submodule.in_vecOfBundle_1_sint_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_1_uint_port:[a-zA-Z0-9_]+]] (DUT.submodule.in_vecOfBundle_1_uint_probe),
     ; EXTRACT-NEXT:          .[[ExtModuleWithPort_source_1_port:[a-zA-Z0-9_]+]]          ([[ExtModuleWithPort_source_1_wire:[a-zA-Z0-9_]+]])
     ; EXTRACT-NEXT:        );
     ; EXTRACT-NEXT:     */
@@ -268,12 +268,12 @@ circuit Top :
     ; NOEXTRACT-NEXT:        .[[DUT_w_vecOfBundle_1_uint]]                 (w_vecOfBundle_1_uint),
     ; NOEXTRACT-NEXT:        .[[DUT_w_otherOther_other_sint]]              (w_otherOther_other_sint),
     ; NOEXTRACT-NEXT:        .[[DUT_w_otherOther_other_uint]]              (w_otherOther_other_uint),
-    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vec_0]]                    (DUT.submodule.w_vec_0),
-    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vec_1]]                    (DUT.submodule.w_vec_1),
-    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vecOfBundle_0_sint]]       (DUT.submodule.w_vecOfBundle_0_sint),
-    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vecOfBundle_0_uint]]       (DUT.submodule.w_vecOfBundle_0_uint),
-    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vecOfBundle_1_sint]]       (DUT.submodule.w_vecOfBundle_1_sint),
-    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vecOfBundle_1_uint]]       (DUT.submodule.w_vecOfBundle_1_uint)
+    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vec_0]]                    (DUT.submodule.w_vec_0_probe),
+    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vec_1]]                    (DUT.submodule.w_vec_1_probe),
+    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vecOfBundle_0_sint]]       (DUT.submodule.w_vecOfBundle_0_sint_probe),
+    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vecOfBundle_0_uint]]       (DUT.submodule.w_vecOfBundle_0_uint_probe),
+    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vecOfBundle_1_sint]]       (DUT.submodule.w_vecOfBundle_1_sint_probe),
+    ; NOEXTRACT-NEXT:        .[[DUT_submodule_w_vecOfBundle_1_uint]]       (DUT.submodule.w_vecOfBundle_1_uint_probe)
     ; NOEXTRACT-NEXT:        .[[ExtModuleWithPort_source_1:[a-zA-Z0-9_]+]] ([[ExtModuleWithPort_source_1_wire:[a-zA-Z0-9_]+]])
     ; NOEXTRACT-NEXT:      );
 
@@ -281,16 +281,6 @@ circuit Top :
     ; CHECK-NEXT:           .source_0 (
     ; CHECK-NEXT:           .source_1 ([[ExtModuleWithPort_source_1_wire]])
     ; CHECK-NEXT:         );
-
-    ; EXTRACT:        FILE ".{{[/\]}}BlackBox_DUT.v"
-    ; EXTRACT:        FILE "Wire{{[/\]}}firrtl{{[/\]}}gct{{[/\]}}BlackBox_GCT.v"
-    ; EXTRACT:        FILE ".{{[/\]}}BlackBox_DUTAndGCT.v"
-
-    ; EXTRACT:        FILE "firrtl_black_box_resource_files.f"
-    ; EXTRACT-NOT:    FILE
-    ; EXTRACT:          BlackBox_DUT.v
-    ; EXTRACT-NEXT:     BlackBox_DUTAndGCT.v
-    ; EXTRACT-NEXT:     Wire{{[/\]}}firrtl{{[/\]}}gct{{[/\]}}BlackBox_GCT.v
 
     ; EXTRACT:        FILE "Wire{{[/\]}}firrtl{{[/\]}}gct{{[/\]}}MyView_companion.sv"
     ; NOEXTRACT-NOT:  FILE {{.*}}{{[/\]}}MyView_companion.sv
@@ -320,9 +310,9 @@ circuit Top :
     ; EXTRACT-NEXT:     assign MyView.sub_vecOfBundle[1].uint = [[DUT_submodule_in_vecOfBundle_1_uint_port]];
     ; EXTRACT-NEXT:     assign MyView.ext_port_1 = [[ExtModuleWithPort_source_1_port]];
     ; EXTRACT:          Tap tap (
-    ; EXTRACT-NEXT:       .b     (r),
     ; EXTRACT-NEXT:       .clock (_tap_clock),
-    ; EXTRACT-NEXT:       .a     (_tap_a)
+    ; EXTRACT-NEXT:       .a     (_tap_a),
+    ; EXTRACT-NEXT:       .b     (r)
     ; EXTRACT-NEXT:     );
     ; EXTRACT-NEXT:   endmodule
 
@@ -344,12 +334,12 @@ circuit Top :
     ; EXTRACT-NEXT:          .[[in_vecOfBundle_1_uint_port]]               (in_vecOfBundle_1_uint),
     ; EXTRACT-NEXT:          .[[in_otherOther_other_sint_port]]            (in_otherOther_other_sint),
     ; EXTRACT-NEXT:          .[[in_otherOther_other_uint_port]]            (in_otherOther_other_uint),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vec_0_port]]              (DUT.submodule.in_vec_0),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vec_1_port]]              (DUT.submodule.in_vec_1),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_0_sint_port]] (DUT.submodule.in_vecOfBundle_0_sint),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_0_uint_port]] (DUT.submodule.in_vecOfBundle_0_uint),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_1_sint_port]] (DUT.submodule.in_vecOfBundle_1_sint),
-    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_1_uint_port]] (DUT.submodule.in_vecOfBundle_1_uint),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vec_0_port]]              (DUT.submodule.in_vec_0_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vec_1_port]]              (DUT.submodule.in_vec_1_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_0_sint_port]] (DUT.submodule.in_vecOfBundle_0_sint_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_0_uint_port]] (DUT.submodule.in_vecOfBundle_0_uint_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_1_sint_port]] (DUT.submodule.in_vecOfBundle_1_sint_probe),
+    ; EXTRACT-NEXT:          .[[DUT_submodule_in_vecOfBundle_1_uint_port]] (DUT.submodule.in_vecOfBundle_1_uint_probe),
     ; EXTRACT-NEXT:          .[[ExtModuleWithPort_source_1_port]]          ([[ExtModuleWithPort_source_1_wire]])
     ; );
     ; NOEXTRACT-NOT:  FILE "Wire{{[/\]}}firrtl{{[/\]}}bindings.sv"
@@ -487,3 +477,13 @@ circuit Top :
     ; YAML-NEXT:                    dimensions: [  ]
     ; YAML-NEXT:                    width: 4
     ; YAML-NEXT:                instances: []
+
+    ; EXTRACT:        FILE ".{{[/\]}}BlackBox_DUT.v"
+    ; EXTRACT:        FILE "Wire{{[/\]}}firrtl{{[/\]}}gct{{[/\]}}BlackBox_GCT.v"
+    ; EXTRACT:        FILE ".{{[/\]}}BlackBox_DUTAndGCT.v"
+
+    ; EXTRACT:        FILE "firrtl_black_box_resource_files.f"
+    ; EXTRACT-NOT:    FILE
+    ; EXTRACT:          BlackBox_DUT.v
+    ; EXTRACT-NEXT:     BlackBox_DUTAndGCT.v
+    ; EXTRACT-NEXT:     Wire{{[/\]}}firrtl{{[/\]}}gct{{[/\]}}BlackBox_GCT.v

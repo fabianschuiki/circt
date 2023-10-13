@@ -13,12 +13,12 @@
 #include "circt/Conversion/HWArithToHW.h"
 #include "../PassDetail.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/ConversionPatterns.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HWArith/HWArithOps.h"
 #include "circt/Dialect/MSFT/MSFTOps.h"
 #include "circt/Dialect/SV/SVOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
-#include "circt/Support/ConversionPatterns.h"
 
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -135,6 +135,12 @@ static bool isLegalOp(Operation *op) {
     return llvm::none_of(funcOp.getArgumentTypes(), isSignednessType) &&
            llvm::none_of(funcOp.getResultTypes(), isSignednessType) &&
            llvm::none_of(funcOp.getFunctionBody().getArgumentTypes(),
+                         isSignednessType);
+  }
+
+  if (auto modOp = dyn_cast<hw::HWModuleLike>(op)) {
+    return llvm::none_of(modOp.getPortTypes(), isSignednessType) &&
+           llvm::none_of(modOp.getModuleBody().getArgumentTypes(),
                          isSignednessType);
   }
 
@@ -354,7 +360,7 @@ Type HWArithToHWTypeConverter::removeSignedness(Type type) {
           })
           .Case<hw::ArrayType>([this](auto type) {
             return hw::ArrayType::get(removeSignedness(type.getElementType()),
-                                      type.getSize());
+                                      type.getNumElements());
           })
           .Case<hw::StructType>([this](auto type) {
             // Recursively convert each element.
@@ -400,6 +406,15 @@ HWArithToHWTypeConverter::HWArithToHWTypeConverter() {
 // Pass driver
 //===----------------------------------------------------------------------===//
 
+void circt::populateHWArithToHWConversionPatterns(
+    HWArithToHWTypeConverter &typeConverter, RewritePatternSet &patterns) {
+  patterns.add<ConstantOpLowering, CastOpLowering, ICmpOpLowering,
+               BinaryOpLowering<AddOp, comb::AddOp>,
+               BinaryOpLowering<SubOp, comb::SubOp>,
+               BinaryOpLowering<MulOp, comb::MulOp>, DivOpLowering>(
+      typeConverter, patterns.getContext());
+}
+
 namespace {
 
 class HWArithToHWPass : public HWArithToHWBase<HWArithToHWPass> {
@@ -414,11 +429,7 @@ public:
     target.addIllegalDialect<HWArithDialect>();
 
     // Add HWArith-specific conversion patterns.
-    patterns.add<ConstantOpLowering, CastOpLowering, ICmpOpLowering,
-                 BinaryOpLowering<hwarith::AddOp, comb::AddOp>,
-                 BinaryOpLowering<hwarith::SubOp, comb::SubOp>,
-                 BinaryOpLowering<hwarith::MulOp, comb::MulOp>, DivOpLowering>(
-        typeConverter, patterns.getContext());
+    populateHWArithToHWConversionPatterns(typeConverter, patterns);
 
     // ALL other operations are converted via the TypeConversionPattern which
     // will replace an operation to an identical operation with replaced

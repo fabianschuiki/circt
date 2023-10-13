@@ -128,12 +128,65 @@ void VerbatimExprSEOp::getAsmResultNames(
 
 void MacroRefExprOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
-  setNameFn(getResult(), getIdent().getName());
+  setNameFn(getResult(), getMacroName());
 }
 
 void MacroRefExprSEOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
-  setNameFn(getResult(), getIdent().getName());
+  setNameFn(getResult(), getMacroName());
+}
+
+static MacroDeclOp getReferencedMacro(const hw::HWSymbolCache *cache,
+                                      Operation *op,
+                                      FlatSymbolRefAttr macroName) {
+  if (cache)
+    if (auto *result = cache->getDefinition(macroName.getAttr()))
+      return cast<MacroDeclOp>(result);
+
+  auto topLevelModuleOp = op->getParentOfType<ModuleOp>();
+  return topLevelModuleOp.lookupSymbol<MacroDeclOp>(macroName.getValue());
+}
+
+/// Lookup the module or extmodule for the symbol.  This returns null on
+/// invalid IR.
+MacroDeclOp MacroRefExprOp::getReferencedMacro(const hw::HWSymbolCache *cache) {
+  return ::getReferencedMacro(cache, *this, getMacroNameAttr());
+}
+
+MacroDeclOp
+MacroRefExprSEOp::getReferencedMacro(const hw::HWSymbolCache *cache) {
+  return ::getReferencedMacro(cache, *this, getMacroNameAttr());
+}
+
+MacroDeclOp MacroDefOp::getReferencedMacro(const hw::HWSymbolCache *cache) {
+  return ::getReferencedMacro(cache, *this, getMacroNameAttr());
+}
+
+/// Ensure that the symbol being instantiated exists and is a MacroDeclOp.
+static LogicalResult verifyMacroSymbolUse(Operation *op, StringAttr name,
+                                          SymbolTableCollection &symbolTable) {
+  auto macro = symbolTable.lookupNearestSymbolFrom<MacroDeclOp>(op, name);
+  if (!macro)
+    return op->emitError("Referenced macro doesn't exist ") << name;
+
+  return success();
+}
+
+/// Ensure that the symbol being instantiated exists and is a MacroDefOp.
+LogicalResult
+MacroRefExprOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  return verifyMacroSymbolUse(*this, getMacroNameAttr().getAttr(), symbolTable);
+}
+
+/// Ensure that the symbol being instantiated exists and is a MacroDefOp.
+LogicalResult
+MacroRefExprSEOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  return verifyMacroSymbolUse(*this, getMacroNameAttr().getAttr(), symbolTable);
+}
+
+/// Ensure that the symbol being instantiated exists and is a MacroDefOp.
+LogicalResult MacroDefOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  return verifyMacroSymbolUse(*this, getMacroNameAttr().getAttr(), symbolTable);
 }
 
 //===----------------------------------------------------------------------===//
@@ -191,14 +244,37 @@ LogicalResult LocalParamOp::verify() {
 // RegOp
 //===----------------------------------------------------------------------===//
 
+static ParseResult
+parseImplicitInitType(OpAsmParser &p, mlir::Type regType,
+                      std::optional<OpAsmParser::UnresolvedOperand> &initValue,
+                      mlir::Type &initType) {
+  if (!initValue.has_value())
+    return success();
+
+  hw::InOutType ioType = regType.dyn_cast<hw::InOutType>();
+  if (!ioType)
+    return p.emitError(p.getCurrentLocation(), "expected inout type for reg");
+
+  initType = ioType.getElementType();
+  return success();
+}
+
+static void printImplicitInitType(OpAsmPrinter &p, Operation *op,
+                                  mlir::Type regType, mlir::Value initValue,
+                                  mlir::Type initType) {}
+
 void RegOp::build(OpBuilder &builder, OperationState &odsState,
-                  Type elementType, StringAttr name, StringAttr sym_name) {
+                  Type elementType, StringAttr name, hw::InnerSymAttr innerSym,
+                  mlir::Value initValue) {
   if (!name)
     name = builder.getStringAttr("");
   odsState.addAttribute("name", name);
-  if (sym_name)
-    odsState.addAttribute(hw::InnerName::getInnerNameAttrName(), sym_name);
+  if (innerSym)
+    odsState.addAttribute(hw::InnerSymbolTable::getInnerSymbolAttrName(),
+                          innerSym);
   odsState.addTypes(hw::InOutType::get(elementType));
+  if (initValue)
+    odsState.addOperands(initValue);
 }
 
 /// Suggest a name for each result value based on the saved result names
@@ -209,6 +285,8 @@ void RegOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
   if (!nameAttr.getValue().empty())
     setNameFn(getResult(), nameAttr.getValue());
 }
+
+std::optional<size_t> RegOp::getTargetResultIndex() { return 0; }
 
 // If this reg is only written to, delete the reg and all writers.
 LogicalResult RegOp::canonicalize(RegOp op, PatternRewriter &rewriter) {
@@ -239,12 +317,14 @@ LogicalResult RegOp::canonicalize(RegOp op, PatternRewriter &rewriter) {
 //===----------------------------------------------------------------------===//
 
 void LogicOp::build(OpBuilder &builder, OperationState &odsState,
-                    Type elementType, StringAttr name, StringAttr sym_name) {
+                    Type elementType, StringAttr name,
+                    hw::InnerSymAttr innerSym) {
   if (!name)
     name = builder.getStringAttr("");
   odsState.addAttribute("name", name);
-  if (sym_name)
-    odsState.addAttribute(hw::InnerName::getInnerNameAttrName(), sym_name);
+  if (innerSym)
+    odsState.addAttribute(hw::InnerSymbolTable::getInnerSymbolAttrName(),
+                          innerSym);
   odsState.addTypes(hw::InOutType::get(elementType));
 }
 
@@ -256,6 +336,8 @@ void LogicOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
   if (!nameAttr.getValue().empty())
     setNameFn(getResult(), nameAttr.getValue());
 }
+
+std::optional<size_t> LogicOp::getTargetResultIndex() { return 0; }
 
 //===----------------------------------------------------------------------===//
 // Control flow like-operations
@@ -1134,7 +1216,8 @@ struct ArraySlice {
             return std::nullopt;
           return ArraySlice{
               /*array=*/slice.getInput(), /*start=*/constant,
-              /*end=*/hw::type_cast<hw::ArrayType>(slice.getType()).getSize()};
+              /*end=*/
+              hw::type_cast<hw::ArrayType>(slice.getType()).getNumElements()};
         })
         .Case<sv::IndexedPartSelectInOutOp>(
             [](sv::IndexedPartSelectInOutOp index)
@@ -1310,10 +1393,8 @@ void InterfaceModportOp::build(OpBuilder &builder, OperationState &state,
                                ArrayRef<StringRef> outputs) {
   auto *ctxt = builder.getContext();
   SmallVector<Attribute, 8> directions;
-  ModportDirectionAttr inputDir =
-      ModportDirectionAttr::get(ctxt, ModportDirection::input);
-  ModportDirectionAttr outputDir =
-      ModportDirectionAttr::get(ctxt, ModportDirection::output);
+  auto inputDir = ModportDirectionAttr::get(ctxt, ModportDirection::input);
+  auto outputDir = ModportDirectionAttr::get(ctxt, ModportDirection::output);
   for (auto input : inputs)
     directions.push_back(ModportStructAttr::get(
         ctxt, inputDir, SymbolRefAttr::get(ctxt, input)));
@@ -1321,6 +1402,11 @@ void InterfaceModportOp::build(OpBuilder &builder, OperationState &state,
     directions.push_back(ModportStructAttr::get(
         ctxt, outputDir, SymbolRefAttr::get(ctxt, output)));
   build(builder, state, name, ArrayAttr::get(ctxt, directions));
+}
+
+std::optional<size_t> InterfaceInstanceOp::getTargetResultIndex() {
+  // Inner symbols on instance operations target the op not any result.
+  return std::nullopt;
 }
 
 /// Suggest a name for each result value based on the saved result names
@@ -1469,11 +1555,13 @@ LogicalResult ReadInterfaceSignalOp::verify() {
 //===----------------------------------------------------------------------===//
 
 void WireOp::build(OpBuilder &builder, OperationState &odsState,
-                   Type elementType, StringAttr name, StringAttr sym_name) {
+                   Type elementType, StringAttr name,
+                   hw::InnerSymAttr innerSym) {
   if (!name)
     name = builder.getStringAttr("");
-  if (sym_name)
-    odsState.addAttribute(hw::InnerName::getInnerNameAttrName(), sym_name);
+  if (innerSym)
+    odsState.addAttribute(hw::InnerSymbolTable::getInnerSymbolAttrName(),
+                          innerSym);
 
   odsState.addAttribute("name", name);
   odsState.addTypes(InOutType::get(elementType));
@@ -1487,6 +1575,8 @@ void WireOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
   if (!nameAttr.getValue().empty())
     setNameFn(getResult(), nameAttr.getValue());
 }
+
+std::optional<size_t> WireOp::getTargetResultIndex() { return 0; }
 
 // If this wire is only written to, delete the wire and all writers.
 LogicalResult WireOp::canonicalize(WireOp wire, PatternRewriter &rewriter) {
@@ -1574,8 +1664,8 @@ static Type getElementTypeOfWidth(Type type, int32_t width) {
 
 LogicalResult IndexedPartSelectInOutOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
-    DictionaryAttr attrs, mlir::RegionRange regions,
-    SmallVectorImpl<Type> &results) {
+    DictionaryAttr attrs, mlir::OpaqueProperties properties,
+    mlir::RegionRange regions, SmallVectorImpl<Type> &results) {
   auto width = attrs.get("width");
   if (!width)
     return failure();
@@ -1597,14 +1687,14 @@ LogicalResult IndexedPartSelectInOutOp::verify() {
   if (auto i = inputElemTy.dyn_cast<IntegerType>())
     inputWidth = i.getWidth();
   else if (auto i = hw::type_cast<hw::ArrayType>(inputElemTy))
-    inputWidth = i.getSize();
+    inputWidth = i.getNumElements();
   else
     return emitError("input element type must be Integer or Array");
 
   if (auto resType = resultElemTy.dyn_cast<IntegerType>())
     resultWidth = resType.getWidth();
   else if (auto resType = hw::type_cast<hw::ArrayType>(resultElemTy))
-    resultWidth = resType.getSize();
+    resultWidth = resType.getNumElements();
   else
     return emitError("result element type must be Integer or Array");
 
@@ -1627,8 +1717,8 @@ OpFoldResult IndexedPartSelectInOutOp::fold(FoldAdaptor) {
 
 LogicalResult IndexedPartSelectOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
-    DictionaryAttr attrs, mlir::RegionRange regions,
-    SmallVectorImpl<Type> &results) {
+    DictionaryAttr attrs, mlir::OpaqueProperties properties,
+    mlir::RegionRange regions, SmallVectorImpl<Type> &results) {
   auto width = attrs.get("width");
   if (!width)
     return failure();
@@ -1657,8 +1747,8 @@ LogicalResult IndexedPartSelectOp::verify() {
 
 LogicalResult StructFieldInOutOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
-    DictionaryAttr attrs, mlir::RegionRange regions,
-    SmallVectorImpl<Type> &results) {
+    DictionaryAttr attrs, mlir::OpaqueProperties properties,
+    mlir::RegionRange regions, SmallVectorImpl<Type> &results) {
   auto field = attrs.get("field");
   if (!field)
     return failure();
@@ -1694,9 +1784,9 @@ template <class Op>
 static Op findInstanceSymbolInBlock(StringAttr name, Block *body) {
   for (auto &op : llvm::reverse(body->getOperations())) {
     if (auto instance = dyn_cast<Op>(op)) {
-      if (instance.getInnerSym() &&
-          instance.getInnerSym().value() == name.getValue())
-        return instance;
+      if (auto innerSym = instance.getInnerSym())
+        if (innerSym->getSymName() == name)
+          return instance;
     }
 
     if (auto ifdef = dyn_cast<IfDefOp>(op)) {
@@ -1837,6 +1927,26 @@ void printXMRPath(OpAsmPrinter &p, XMROp op, ArrayAttr pathAttr,
                   StringAttr terminalAttr) {
   llvm::interleaveComma(pathAttr, p);
   p << ", " << terminalAttr;
+}
+
+/// Ensure that the symbol being instantiated exists and is a HierPathOp.
+LogicalResult XMRRefOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto *table = SymbolTable::getNearestSymbolTable(*this);
+  auto path = dyn_cast_or_null<hw::HierPathOp>(
+      symbolTable.lookupSymbolIn(table, getRefAttr()));
+  if (!path)
+    return emitError("Referenced path doesn't exist ") << getRefAttr();
+
+  return success();
+}
+
+hw::HierPathOp XMRRefOp::getReferencedPath(const hw::HWSymbolCache *cache) {
+  if (cache)
+    if (auto *result = cache->getDefinition(getRefAttr().getAttr()))
+      return cast<hw::HierPathOp>(result);
+
+  auto topLevelModuleOp = (*this)->getParentOfType<ModuleOp>();
+  return topLevelModuleOp.lookupSymbol<hw::HierPathOp>(getRefAttr().getValue());
 }
 
 //===----------------------------------------------------------------------===//

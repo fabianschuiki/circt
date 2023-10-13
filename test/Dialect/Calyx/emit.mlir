@@ -1,9 +1,9 @@
-// RUN: circt-translate --export-calyx --verify-diagnostics %s | FileCheck %s --strict-whitespace
+// RUN: circt-translate --export-calyx --split-input-file --verify-diagnostics %s | FileCheck %s --strict-whitespace
 
 module attributes {calyx.metadata = ["location1", "location2"], calyx.entrypoint = "main"} {
 
   // CHECK: import "primitives/core.futil";
-  // CHECK-LABEL: component A<"static"=1>(in: 32, @go go: 1, @clk clk: 1, @reset reset: 1) -> (out: 32, @done done: 1) {
+  // CHECK-LABEL: component A<"static"=1,>(in: 32, @go go: 1, @clk clk: 1, @reset reset: 1) -> (out: 32, @done done: 1) {
   calyx.component @A(%in: i32, %go: i1 {go = 1}, %clk: i1 {clk = 1}, %reset: i1 {reset = 1}) -> (%out: i32, %done: i1 {done = 1}) {
     %c1_1 = hw.constant 1 : i1
 
@@ -14,7 +14,7 @@ module attributes {calyx.metadata = ["location1", "location2"], calyx.entrypoint
     calyx.control {}
   } {static = 1}
 
-  // CHECK-LABEL: component B<"toplevel"=1>(in: 1, @go go: 1, @clk clk: 1, @reset reset: 1) -> (out: 1, @done done: 1) {
+  // CHECK-LABEL: component B<"precious"=1, "toplevel"=1,>(in: 1, @go go: 1, @clk clk: 1, @reset reset: 1) -> (out: 1, @done done: 1) {
   calyx.component @B(%in: i1, %go: i1 {go}, %clk: i1 {clk}, %reset: i1 {reset}) -> (%out: i1, %done: i1 {done}) {
     %r.in, %r.write_en, %r.clk, %r.reset, %r.out, %r.done = calyx.register @r : i1, i1, i1, i1, i1, i1
     %s1.in, %s1.write_en, %s1.clk, %s1.reset, %s1.out, %s1.done = calyx.register @s1 : i32, i1, i1, i1, i32, i1
@@ -82,11 +82,12 @@ module attributes {calyx.metadata = ["location1", "location2"], calyx.entrypoint
         calyx.enable @DivRemWrite
       }
     }
-  } {toplevel}
+  } {toplevel, precious}
 
   // CHECK-LABEL: component main(@go go: 1, @clk clk: 1, @reset reset: 1) -> (@done done: 1) {
   calyx.component @main(%go: i1 {go = 1}, %clk: i1 {clk = 1}, %reset: i1 {reset = 1}) -> (%done: i1 {done = 1}) {
     // CHECK-LABEL: cells {
+    // CHECK-NEXT:    @generated ud = undef(1);
     // CHECK-NEXT:    c0 = A();
     // CHECK-NEXT:    @precious c1 = B();
     // CHECK-NEXT:    r = std_reg(8);
@@ -95,6 +96,7 @@ module attributes {calyx.metadata = ["location1", "location2"], calyx.entrypoint
     // CHECK-NEXT:    @generated a0 = std_add(32);
     // CHECK-NEXT:    @generated s0 = std_slice(32, 8);
     // CHECK-NEXT:    @generated wire = std_wire(8);
+    %ud.out = calyx.undefined @ud {generated} : i1
     %c0.in, %c0.go, %c0.clk, %c0.reset, %c0.out, %c0.done = calyx.instance @c0 of @A : i32, i1, i1, i1, i32, i1
     %c1.in, %c1.go, %c1.clk, %c1.reset, %c1.out, %c1.done = calyx.instance @c1 of @B {not_calyx_attr="foo", precious} : i1, i1, i1, i1, i1, i1
     %r.in, %r.write_en, %r.clk, %r.reset, %r.out, %r.done = calyx.register @r : i8, i1, i1, i1, i8, i1
@@ -108,7 +110,7 @@ module attributes {calyx.metadata = ["location1", "location2"], calyx.entrypoint
     %c1_i32 = hw.constant 1 : i32
     // CHECK-LABEL: wires {
     calyx.wires {
-      // CHECK-NEXT: group Group1<"static"=1> {
+      // CHECK-NEXT: group Group1<"static"=1,> {
       // CHECK-NEXT:    s0.in = a0.out;
       // CHECK-NEXT:    m0.addr0 = 1'd1;
       // CHECK-NEXT:    a0.left = m0.read_data;
@@ -203,4 +205,38 @@ module attributes {calyx.metadata = ["location1", "location2"], calyx.entrypoint
 // CHECK-NEXT:  0: location1
 // CHECK-NEXT:  1: location2
 // CHECK-NEXT:  }#
+}
+
+// -----
+
+module attributes {calyx.entrypoint = "main"} {
+  // CHECK-LABEL: component main(@go go: 1, @clk clk: 1, @reset reset: 1) -> (@done done: 1) {
+  calyx.component @main(%go: i1 {go}, %clk: i1 {clk}, %reset: i1 {reset}) -> (%done: i1 {done}) {
+    %p.in, %p.write_en, %p.clk, %p.reset, %p.out, %p.done = calyx.register @p : i3, i1, i1, i1, i3, i1
+    %incr.left, %incr.right, %incr.out = calyx.std_add @incr : i3, i3, i3
+    %l.left, %l.right, %l.out = calyx.std_lt @l : i3, i3, i1
+    %c1_3 = hw.constant 1 : i3
+    %c1_1 = hw.constant 1 : i1
+    %c6_3 = hw.constant 6 : i3
+
+    calyx.wires {
+      // CHECK: group A {
+      calyx.group @A {
+        calyx.assign %incr.left = %p.out : i3
+        calyx.assign %incr.right = %c1_3 : i3
+        calyx.assign %p.in = %incr.out : i3
+        calyx.assign %p.write_en = %c1_1 : i1
+        calyx.group_done %p.done : i1
+      }
+    }
+    calyx.control {
+      // CHECK: repeat 10 {
+      calyx.repeat 10 {
+        calyx.seq {
+          calyx.enable @A
+          calyx.enable @A
+        }
+      }
+    }
+  }
 }

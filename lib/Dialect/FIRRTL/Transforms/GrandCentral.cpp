@@ -21,6 +21,7 @@
 #include "circt/Dialect/FIRRTL/Passes.h"
 #include "circt/Dialect/HW/HWAttributes.h"
 #include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/HW/InnerSymbolNamespace.h"
 #include "circt/Dialect/SV/SVOps.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "llvm/ADT/DepthFirstIterator.h"
@@ -33,7 +34,6 @@
 
 using namespace circt;
 using namespace firrtl;
-using hw::HWModuleLike;
 
 //===----------------------------------------------------------------------===//
 // Collateral for generating a YAML representation of a SystemVerilog interface
@@ -195,7 +195,7 @@ struct MappingContextTraits<DescribedSignal, Context> {
       // unwrapping happens in reverse order of the final representation.
       auto tpe = op.signal.getType();
       while (auto vector = tpe.dyn_cast<hw::UnpackedArrayType>()) {
-        dimensions.push_back(vector.getSize());
+        dimensions.push_back(vector.getNumElements());
         tpe = vector.getElementType();
       }
       dimensions = SmallVector<unsigned>(llvm::reverse(dimensions));
@@ -203,8 +203,8 @@ struct MappingContextTraits<DescribedSignal, Context> {
       // The final non-array type must be an integer.  Leave this as an assert
       // with a blind cast because we generated this type in this pass (and we
       // therefore cannot fail this cast).
-      assert(tpe.isa<IntegerType>());
-      width = tpe.cast<IntegerType>().getWidth();
+      assert(isa<IntegerType>(tpe));
+      width = type_cast<IntegerType>(tpe).getWidth();
     }
 
     /// A no-argument constructor is necessary to work with LLVM's YAML library.
@@ -255,7 +255,7 @@ struct MappingContextTraits<DescribedInstance, Context> {
         description = stripComment(op.description.getValue());
 
       for (auto &d : op.dimensions) {
-        auto dimension = d.dyn_cast<IntegerAttr>();
+        auto dimension = dyn_cast<IntegerAttr>(d);
         dimensions.push_back(dimension.getInt());
       }
     }
@@ -577,9 +577,7 @@ struct InterfaceElemsBuilder {
 ///    instantiate interfaces and to generate the "mappings" file that produces
 ///    cross-module references (XMRs) to drive the interface.
 struct GrandCentralPass : public GrandCentralBase<GrandCentralPass> {
-  GrandCentralPass(bool instantiateCompanionOnlyFlag) {
-    instantiateCompanionOnly = instantiateCompanionOnlyFlag;
-  }
+  using GrandCentralBase::companionMode;
 
   void runOnOperation() override;
 
@@ -647,7 +645,8 @@ private:
                  SmallVector<InterfaceElemsBuilder> &interfaceBuilder);
 
   /// Return the module associated with this value.
-  HWModuleLike getEnclosingModule(Value value, FlatSymbolRefAttr sym = {});
+  igraph::ModuleOpInterface getEnclosingModule(Value value,
+                                               FlatSymbolRefAttr sym = {});
 
   /// Inforamtion about how the circuit should be extracted.  This will be
   /// non-empty if an extraction annotation is found.
@@ -677,7 +676,7 @@ private:
 
   /// The module namespaces. These are lazily constructed by
   /// `getModuleNamespace`.
-  DenseMap<Operation *, ModuleNamespace> moduleNamespaces;
+  DenseMap<Operation *, hw::InnerSymbolNamespace> moduleNamespaces;
 
   /// Return a reference to the circuit namespace.  This will lazily construct a
   /// namespace if one does not exist.
@@ -688,24 +687,20 @@ private:
   }
 
   /// Get the cached namespace for a module.
-  ModuleNamespace &getModuleNamespace(FModuleLike module) {
-    auto it = moduleNamespaces.find(module);
-    if (it != moduleNamespaces.end())
-      return it->second;
-    return moduleNamespaces.insert({module, ModuleNamespace(module)})
-        .first->second;
+  hw::InnerSymbolNamespace &getModuleNamespace(FModuleLike module) {
+    return moduleNamespaces.try_emplace(module, module).first->second;
   }
 
   /// A symbol table associated with the circuit.  This is lazily constructed by
   /// `getSymbolTable`.
-  std::optional<SymbolTable> symbolTable;
+  std::optional<SymbolTable *> symbolTable;
 
   /// Return a reference to a circuit-level symbol table.  Lazily construct one
   /// if such a symbol table does not already exist.
   SymbolTable &getSymbolTable() {
     if (!symbolTable)
-      symbolTable = SymbolTable(getOperation());
-    return *symbolTable;
+      symbolTable = &getAnalysis<SymbolTable>();
+    return **symbolTable;
   }
 
   // Utility that acts like emitOpError, but does _not_ include a note.  The
@@ -736,11 +731,8 @@ private:
   /// A store of the YAML representation of interfaces.
   DenseMap<Attribute, sv::InterfaceOp> interfaceMap;
 
-  /// Returns an operation's `inner_sym`, adding one if necessary.
-  StringAttr getOrAddInnerSym(Operation *op);
-
-  /// Returns a port's `inner_sym`, adding one if necessary.
-  StringAttr getOrAddInnerSym(FModuleLike module, size_t portIdx);
+  /// Emit the hierarchy yaml file.
+  void emitHierarchyYamlFile(SmallVectorImpl<sv::InterfaceOp> &intfs);
 };
 
 } // namespace
@@ -794,7 +786,7 @@ parseAugmentedType(ApplyState &state, DictionaryAttr augmentedType,
     // Parse non-local annotations.
     SmallString<32> strpath;
     for (auto p : pathAttr) {
-      auto dict = p.dyn_cast_or_null<DictionaryAttr>();
+      auto dict = dyn_cast_or_null<DictionaryAttr>(p);
       if (!dict) {
         mlir::emitError(loc, "annotation '" + clazz +
                                  " has invalid type (expected DictionaryAttr)");
@@ -826,7 +818,7 @@ parseAugmentedType(ApplyState &state, DictionaryAttr augmentedType,
     for (size_t i = 0, e = componentAttr.size(); i != e; ++i) {
       auto cPath = (path + ".component[" + Twine(i) + "]").str();
       auto component = componentAttr[i];
-      auto dict = component.dyn_cast_or_null<DictionaryAttr>();
+      auto dict = dyn_cast_or_null<DictionaryAttr>(component);
       if (!dict) {
         mlir::emitError(loc, "annotation '" + clazz + "' with path '" + cPath +
                                  " has invalid type (expected DictionaryAttr)");
@@ -840,7 +832,7 @@ parseAugmentedType(ApplyState &state, DictionaryAttr augmentedType,
       auto value = dict.get("value");
 
       // A subfield like "bar" in "~Foo|Foo>foo.bar".
-      if (auto field = value.dyn_cast<StringAttr>()) {
+      if (auto field = dyn_cast<StringAttr>(value)) {
         assert(classAttr.getValue() == "firrtl.annotations.TargetToken$Field" &&
                "A StringAttr target token must be found with a subfield target "
                "token.");
@@ -849,7 +841,7 @@ parseAugmentedType(ApplyState &state, DictionaryAttr augmentedType,
       }
 
       // A subindex like "42" in "~Foo|Foo>foo[42]".
-      if (auto index = value.dyn_cast<IntegerAttr>()) {
+      if (auto index = dyn_cast<IntegerAttr>(value)) {
         assert(classAttr.getValue() == "firrtl.annotations.TargetToken$Index" &&
                "An IntegerAttr target token must be found with a subindex "
                "target token.");
@@ -910,7 +902,7 @@ parseAugmentedType(ApplyState &state, DictionaryAttr augmentedType,
     if (!elementsAttr)
       return std::nullopt;
     for (size_t i = 0, e = elementsAttr.size(); i != e; ++i) {
-      auto field = elementsAttr[i].dyn_cast_or_null<DictionaryAttr>();
+      auto field = dyn_cast_or_null<DictionaryAttr>(elementsAttr[i]);
       if (!field) {
         mlir::emitError(
             loc,
@@ -927,7 +919,7 @@ parseAugmentedType(ApplyState &state, DictionaryAttr augmentedType,
           tryGetAs<DictionaryAttr>(field, root, "tpe", loc, clazz, ePath);
       std::optional<StringAttr> description;
       if (auto maybeDescription = field.get("description"))
-        description = maybeDescription.cast<StringAttr>();
+        description = cast<StringAttr>(maybeDescription);
       auto eltAttr = parseAugmentedType(
           state, tpe, root, companion, name, defName, std::nullopt, description,
           clazz, companionAttr, path + "_" + name.getValue());
@@ -938,7 +930,7 @@ parseAugmentedType(ApplyState &state, DictionaryAttr augmentedType,
       // This includes the optional description and name.
       NamedAttrList attrs;
       if (auto maybeDescription = field.get("description"))
-        attrs.append("description", maybeDescription.cast<StringAttr>());
+        attrs.append("description", cast<StringAttr>(maybeDescription));
       attrs.append("name", name);
       attrs.append("tpe", tpe.getAs<StringAttr>("class"));
       elements.push_back(*eltAttr);
@@ -1097,7 +1089,7 @@ parseAugmentedType(ApplyState &state, DictionaryAttr augmentedType,
     SmallVector<Attribute> elements;
     for (auto [i, elt] : llvm::enumerate(elementsAttr)) {
       auto eltAttr = parseAugmentedType(
-          state, elt.cast<DictionaryAttr>(), root, companion, name,
+          state, cast<DictionaryAttr>(elt), root, companion, name,
           StringAttr::get(context, ""), id, std::nullopt, clazz, companionAttr,
           path + "_" + Twine(i));
       if (!eltAttr)
@@ -1187,7 +1179,7 @@ LogicalResult circt::firrtl::applyGCTView(const AnnoPathValue &target,
 //===----------------------------------------------------------------------===//
 
 std::optional<Attribute> GrandCentralPass::fromAttr(Attribute attr) {
-  auto dict = attr.dyn_cast<DictionaryAttr>();
+  auto dict = dyn_cast<DictionaryAttr>(attr);
   if (!dict) {
     emitCircuitError() << "attribute is not a dictionary: " << attr << "\n";
     return std::nullopt;
@@ -1267,9 +1259,10 @@ bool GrandCentralPass::traverseField(
         assert(leafValue && "leafValue not found");
 
         auto companionModule = companionIDMap.lookup(id).companion;
-        HWModuleLike enclosing = getEnclosingModule(leafValue, sym);
+        igraph::ModuleOpInterface enclosing =
+            getEnclosingModule(leafValue, sym);
 
-        auto tpe = leafValue.getType().cast<FIRRTLBaseType>();
+        auto tpe = type_cast<FIRRTLBaseType>(leafValue.getType());
 
         // If the type is zero-width then do not emit an XMR.
         if (!tpe.getBitWidthOrSentinel())
@@ -1375,9 +1368,9 @@ bool GrandCentralPass::traverseField(
           auto field = fromAttr(element);
           if (!field)
             return false;
-          auto name = element.cast<DictionaryAttr>().getAs<StringAttr>("name");
+          auto name = cast<DictionaryAttr>(element).getAs<StringAttr>("name");
           if (!name)
-            name = element.cast<DictionaryAttr>().getAs<StringAttr>("defName");
+            name = cast<DictionaryAttr>(element).getAs<StringAttr>("defName");
           anyFailed &= traverseField(
               *field, id, path.snapshot().append("." + name.getValue()),
               xmrElems, interfaceBuilder);
@@ -1412,10 +1405,9 @@ std::optional<TypeSum> GrandCentralPass::computeField(
             FieldRef fieldRef = leafMap.lookup(ground.getID()).field;
             auto value = fieldRef.getValue();
             auto fieldID = fieldRef.getFieldID();
-            auto tpe = cast<FIRRTLBaseType>(
-                value.getType()
-                    .cast<circt::hw::FieldIDTypeInterface>()
-                    .getFinalTypeByFieldID(fieldID));
+            auto tpe = firrtl::type_cast<FIRRTLBaseType>(
+                hw::FieldIdImpl::getFinalTypeByFieldID(value.getType(),
+                                                       fieldID));
             if (!tpe.isGround()) {
               value.getDefiningOp()->emitOpError()
                   << "cannot be added to interface with id '"
@@ -1501,7 +1493,7 @@ std::optional<StringAttr> GrandCentralPass::traverseBundle(
     if (!field)
       return std::nullopt;
 
-    auto name = element.cast<DictionaryAttr>().getAs<StringAttr>("name");
+    auto name = cast<DictionaryAttr>(element).getAs<StringAttr>("name");
     // auto signalSym = hw::InnerRefAttr::get(iface.sym_nameAttr(), name);
     // TODO: The `append(name.getValue())` in the following should actually be
     // `append(signalSym)`, but this requires that `computeField` and the
@@ -1517,7 +1509,7 @@ std::optional<StringAttr> GrandCentralPass::traverseBundle(
     if (!elementType)
       return std::nullopt;
     StringAttr description =
-        element.cast<DictionaryAttr>().getAs<StringAttr>("description");
+        cast<DictionaryAttr>(element).getAs<StringAttr>("description");
     interfaceBuilder[lastIndex].elementsList.emplace_back(description, name,
                                                           *elementType);
   }
@@ -1526,17 +1518,17 @@ std::optional<StringAttr> GrandCentralPass::traverseBundle(
 
 /// Return the module that is associated with this value.  Use the cached/lazily
 /// constructed symbol table to make this fast.
-HWModuleLike GrandCentralPass::getEnclosingModule(Value value,
-                                                  FlatSymbolRefAttr sym) {
-  if (auto blockArg = value.dyn_cast<BlockArgument>())
-    return cast<HWModuleLike>(blockArg.getOwner()->getParentOp());
+igraph::ModuleOpInterface
+GrandCentralPass::getEnclosingModule(Value value, FlatSymbolRefAttr sym) {
+  if (auto blockArg = dyn_cast<BlockArgument>(value))
+    return cast<igraph::ModuleOpInterface>(blockArg.getOwner()->getParentOp());
 
   auto *op = value.getDefiningOp();
   if (InstanceOp instance = dyn_cast<InstanceOp>(op))
-    return getSymbolTable().lookup<HWModuleLike>(
+    return getSymbolTable().lookup<igraph::ModuleOpInterface>(
         instance.getModuleNameAttr().getValue());
 
-  return op->getParentOfType<HWModuleLike>();
+  return op->getParentOfType<igraph::ModuleOpInterface>();
 }
 
 /// This method contains the business logic of this pass.
@@ -1557,13 +1549,13 @@ void GrandCentralPass::runOnOperation() {
   bool removalError = false;
   AnnotationSet::removeAnnotations(circuitOp, [&](Annotation anno) {
     if (anno.isClass(augmentedBundleTypeClass)) {
-      // If we are in "instantiateCompanionOnly" mode, then we don't need to
+      // If we are in "Instantiate" companion mode, then we don't need to
       // create the interface, so we can skip adding it to the worklist.  This
       // is a janky hack for situations where you want to synthesize assertion
       // logic included in the companion, but don't want to have a dead
       // interface hanging around (or have problems with tools understanding
       // interfaces).
-      if (!instantiateCompanionOnly)
+      if (companionMode != CompanionMode::Instantiate)
         worklist.push_back(anno);
       ++numAnnosRemoved;
       return true;
@@ -1682,23 +1674,9 @@ void GrandCentralPass::runOnOperation() {
   // built exist.  However, still generate the YAML file if the annotation for
   // this was passed in because some flows expect this.
   if (worklist.empty()) {
-    if (!maybeHierarchyFileYAML)
-      return markAllAnalysesPreserved();
-    std::string yamlString;
-    llvm::raw_string_ostream stream(yamlString);
-    ::yaml::Context yamlContext({interfaceMap});
-    llvm::yaml::Output yout(stream);
-    OpBuilder builder(circuitOp);
     SmallVector<sv::InterfaceOp, 0> interfaceVec;
-    yamlize(yout, interfaceVec, true, yamlContext);
-    builder.setInsertionPointToStart(circuitOp.getBodyBlock());
-    builder.create<sv::VerbatimOp>(builder.getUnknownLoc(), yamlString)
-        ->setAttr("output_file",
-                  hw::OutputFileAttr::getFromFilename(
-                      &getContext(), maybeHierarchyFileYAML->getValue(),
-                      /*excludFromFileList=*/true));
-    LLVM_DEBUG({ llvm::dbgs() << "Generated YAML:" << yamlString << "\n"; });
-    return;
+    emitHierarchyYamlFile(interfaceVec);
+    return markAllAnalysesPreserved();
   }
 
   // Setup the builder to create ops _inside the FIRRTL circuit_.  This is
@@ -1732,7 +1710,7 @@ void GrandCentralPass::runOnOperation() {
   /// module as if it were the DUT.  This works by doing a depth-first walk of
   /// the instance graph, starting from the "effective" DUT and stopping the
   /// search at any modules which are known companions.
-  DenseSet<hw::HWModuleLike> dutModules;
+  DenseSet<igraph::ModuleOpInterface> dutModules;
   FModuleOp effectiveDUT = dut;
   if (!effectiveDUT)
     effectiveDUT = cast<FModuleOp>(
@@ -1745,7 +1723,7 @@ void GrandCentralPass::runOnOperation() {
       i.skipChildren();
       continue;
     }
-    dutModules.insert(i->getModule());
+    dutModules.insert(i->getModule<igraph::ModuleOpInterface>());
     // Manually increment the iterator to avoid walking off the end from
     // skipChildren.
     ++i;
@@ -1781,6 +1759,7 @@ void GrandCentralPass::runOnOperation() {
   /// Central annotations.  This is used to populate: (1) the companionIDMap and
   /// (2) the leafMap.  Annotations are removed as they are discovered and if
   /// they are not malformed.
+  DenseSet<Operation *> modulesToDelete;
   removalError = false;
   circuitOp.walk([&](Operation *op) {
     TypeSwitch<Operation *>(op)
@@ -1895,6 +1874,15 @@ void GrandCentralPass::runOnOperation() {
               if (!instance)
                 goto FModuleOp_error;
 
+              // Companions are only allowed to take inputs.
+              for (unsigned i = 0, n = instance->getNumResults(); i < n; ++i) {
+                if (instance->getPortDirection(i) != Direction::In) {
+                  op.emitOpError()
+                      << "companion instance cannot have output ports";
+                  goto FModuleOp_error;
+                }
+              }
+
               // If no extraction info was provided, exit.  Otherwise, setup the
               // lone instance of the companion to be lowered as a bind.
               if (!maybeExtractInfo) {
@@ -1904,22 +1892,10 @@ void GrandCentralPass::runOnOperation() {
 
               // If the companion is instantiated above the DUT, then don't
               // extract it.
-              if (dut && !instancePaths->instanceGraph.isAncestor(
-                             op, cast<hw::HWModuleLike>(*dut))) {
+              if (dut && !instancePaths->instanceGraph.isAncestor(op, dut)) {
                 ++numAnnosRemoved;
                 return true;
               }
-
-              // Lower the companion to a bind unless the user told us
-              // explicitly not to.
-              if (!instantiateCompanionOnly)
-                (*instance)->setAttr("lowerToBind", builder.getUnitAttr());
-
-              (*instance)->setAttr(
-                  "output_file",
-                  hw::OutputFileAttr::getFromFilename(
-                      &getContext(), maybeExtractInfo->bindFilename.getValue(),
-                      /*excludeFromFileList=*/true));
 
               // Look for any modules/extmodules _only_ instantiated by the
               // companion.  If these have no output file attribute, then mark
@@ -1935,6 +1911,30 @@ void GrandCentralPass::runOnOperation() {
                        "(including companion):\n";
               });
 
+              if (companionMode == CompanionMode::Drop) {
+                // Delete the instance if companions are disabled.
+                OpBuilder builder(&getContext());
+                for (auto port : instance->getResults()) {
+                  builder.setInsertionPointAfterValue(port);
+                  auto wire =
+                      builder.create<WireOp>(port.getLoc(), port.getType());
+                  port.replaceAllUsesWith(wire.getResult());
+                }
+                instance->erase();
+              } else {
+                // Lower the companion to a bind unless the user told us
+                // explicitly not to.
+                if (companionMode == CompanionMode::Bind)
+                  (*instance)->setAttr("lowerToBind", builder.getUnitAttr());
+
+                (*instance)->setAttr(
+                    "output_file",
+                    hw::OutputFileAttr::getFromFilename(
+                        &getContext(),
+                        maybeExtractInfo->bindFilename.getValue(),
+                        /*excludeFromFileList=*/true));
+              }
+
               for (auto &node : llvm::depth_first(companionNode)) {
                 auto mod = node->getModule();
 
@@ -1945,16 +1945,21 @@ void GrandCentralPass::runOnOperation() {
                 auto *modNode = instancePaths->instanceGraph.lookup(mod);
                 SmallVector<InstanceRecord *> instances(modNode->uses());
                 if (modNode != companionNode &&
-                    dutModules.count(modNode->getModule()))
+                    dutModules.count(
+                        modNode->getModule<igraph::ModuleOpInterface>()))
                   continue;
 
                 LLVM_DEBUG({
-                  llvm::dbgs() << "    - module: "
-                               << cast<FModuleLike>(*mod).moduleName() << "\n";
+                  llvm::dbgs()
+                      << "    - module: " << mod.getModuleName() << "\n";
                 });
 
                 if (auto extmodule = dyn_cast<FExtModuleOp>(*mod)) {
                   for (auto anno : AnnotationSet(extmodule)) {
+                    if (companionMode == CompanionMode::Drop) {
+                      modulesToDelete.insert(mod);
+                      break;
+                    }
                     if (!anno.isClass(blackBoxInlineAnnoClass) &&
                         !anno.isClass(blackBoxPathAnnoClass))
                       continue;
@@ -1970,17 +1975,21 @@ void GrandCentralPass::runOnOperation() {
                   continue;
                 }
 
-                // Move this module under the Grand Central output directory if
-                // no pre-existing output file information is present.
-                if (!mod->hasAttr("output_file")) {
-                  mod->setAttr("output_file",
-                               hw::OutputFileAttr::getAsDirectory(
-                                   &getContext(),
-                                   maybeExtractInfo->directory.getValue(),
-                                   /*excludeFromFileList=*/true,
-                                   /*includeReplicatedOps=*/true));
-                  mod->setAttr("comment", builder.getStringAttr(
-                                              "VCS coverage exclude_file"));
+                if (companionMode == CompanionMode::Drop) {
+                  modulesToDelete.insert(mod);
+                } else {
+                  // Move this module under the Grand Central output directory
+                  // if no pre-existing output file information is present.
+                  if (!mod->hasAttr("output_file")) {
+                    mod->setAttr("output_file",
+                                 hw::OutputFileAttr::getAsDirectory(
+                                     &getContext(),
+                                     maybeExtractInfo->directory.getValue(),
+                                     /*excludeFromFileList=*/true,
+                                     /*includeReplicatedOps=*/true));
+                    mod->setAttr("comment", builder.getStringAttr(
+                                                "VCS coverage exclude_file"));
+                  }
                 }
               }
 
@@ -2001,6 +2010,26 @@ void GrandCentralPass::runOnOperation() {
   if (removalError)
     return signalPassFailure();
 
+  if (companionMode == CompanionMode::Drop) {
+    for (auto *mod : modulesToDelete) {
+      auto name = cast<FModuleLike>(mod).getModuleNameAttr();
+
+      DenseSet<hw::HierPathOp> nlas;
+      nlaTable->getNLAsInModule(name, nlas);
+      nlaTable->removeNLAsfromModule(nlas, name);
+      for (auto nla : nlas) {
+        if (nla.root() == name)
+          nla.erase();
+      }
+
+      mod->erase();
+    }
+
+    SmallVector<sv::InterfaceOp, 0> interfaceVec;
+    emitHierarchyYamlFile(interfaceVec);
+    return;
+  }
+
   LLVM_DEBUG({
     // Print out the companion map and all leaf values that were discovered.
     // Sort these by their keys before printing to make this easier to read.
@@ -2011,7 +2040,7 @@ void GrandCentralPass::runOnOperation() {
       });
     };
     for (auto tuple : companionIDMap)
-      ids.push_back(tuple.first.cast<IntegerAttr>());
+      ids.push_back(cast<IntegerAttr>(tuple.first));
     sort();
     llvm::dbgs() << "companionIDMap:\n";
     for (auto id : ids) {
@@ -2021,14 +2050,14 @@ void GrandCentralPass::runOnOperation() {
     }
     ids.clear();
     for (auto tuple : leafMap)
-      ids.push_back(tuple.first.cast<IntegerAttr>());
+      ids.push_back(cast<IntegerAttr>(tuple.first));
     sort();
     llvm::dbgs() << "leafMap:\n";
     for (auto id : ids) {
       auto fieldRef = leafMap.lookup(id).field;
       auto value = fieldRef.getValue();
       auto fieldID = fieldRef.getFieldID();
-      if (auto blockArg = value.dyn_cast<BlockArgument>()) {
+      if (auto blockArg = dyn_cast<BlockArgument>(value)) {
         FModuleOp module = cast<FModuleOp>(blockArg.getOwner()->getParentOp());
         llvm::dbgs() << "  - " << id.getValue() << ": "
                      << module.getName() + ">" +
@@ -2162,8 +2191,7 @@ void GrandCentralPass::runOnOperation() {
       ++numInterfaces;
       if (dut &&
           !instancePaths->instanceGraph.isAncestor(
-              companionIDMap[ifaceBuilder.id].companion,
-              cast<hw::HWModuleLike>(*dut)) &&
+              companionIDMap[ifaceBuilder.id].companion, dut) &&
           testbenchDir)
         iface->setAttr("output_file",
                        hw::OutputFileAttr::getAsDirectory(
@@ -2234,7 +2262,7 @@ void GrandCentralPass::runOnOperation() {
     builder.create<sv::InterfaceInstanceOp>(
         getOperation().getLoc(), topIface.getInterfaceType(),
         companionIDMap.lookup(bundle.getID()).name,
-        builder.getStringAttr(symbolName));
+        hw::InnerSymAttr::get(builder.getStringAttr(symbolName)));
 
     // If no extraction information was present, then just leave the interface
     // instantiated in the companion.  Otherwise, make it a bind.
@@ -2244,29 +2272,11 @@ void GrandCentralPass::runOnOperation() {
     // If the interface is associated with a companion that is instantiated
     // above the DUT (e.g.., in the test harness), then don't extract it.
     if (dut && !instancePaths->instanceGraph.isAncestor(
-                   companionIDMap[bundle.getID()].companion,
-                   cast<hw::HWModuleLike>(*dut)))
+                   companionIDMap[bundle.getID()].companion, dut))
       continue;
   }
 
-  // If a `GrandCentralHierarchyFileAnnotation` was passed in, generate a YAML
-  // representation of the interfaces that we produced with the filename that
-  // that annotation provided.
-  if (maybeHierarchyFileYAML) {
-    std::string yamlString;
-    llvm::raw_string_ostream stream(yamlString);
-    ::yaml::Context yamlContext({interfaceMap});
-    llvm::yaml::Output yout(stream);
-    yamlize(yout, interfaceVec, true, yamlContext);
-
-    builder.setInsertionPointToStart(circuitOp.getBodyBlock());
-    builder.create<sv::VerbatimOp>(builder.getUnknownLoc(), yamlString)
-        ->setAttr("output_file",
-                  hw::OutputFileAttr::getFromFilename(
-                      &getContext(), maybeHierarchyFileYAML->getValue(),
-                      /*excludFromFileList=*/true));
-    LLVM_DEBUG({ llvm::dbgs() << "Generated YAML:" << yamlString << "\n"; });
-  }
+  emitHierarchyYamlFile(interfaceVec);
 
   // Signal pass failure if any errors were found while examining circuit
   // annotations.
@@ -2275,11 +2285,38 @@ void GrandCentralPass::runOnOperation() {
   markAnalysesPreserved<NLATable>();
 }
 
+void GrandCentralPass::emitHierarchyYamlFile(
+    SmallVectorImpl<sv::InterfaceOp> &intfs) {
+  // If a `GrandCentralHierarchyFileAnnotation` was passed in, generate a YAML
+  // representation of the interfaces that we produced with the filename that
+  // that annotation provided.
+  if (!maybeHierarchyFileYAML)
+    return;
+
+  CircuitOp circuitOp = getOperation();
+
+  std::string yamlString;
+  llvm::raw_string_ostream stream(yamlString);
+  ::yaml::Context yamlContext({interfaceMap});
+  llvm::yaml::Output yout(stream);
+  yamlize(yout, intfs, true, yamlContext);
+
+  auto builder = OpBuilder::atBlockBegin(circuitOp.getBodyBlock());
+  builder.create<sv::VerbatimOp>(builder.getUnknownLoc(), yamlString)
+      ->setAttr("output_file",
+                hw::OutputFileAttr::getFromFilename(
+                    &getContext(), maybeHierarchyFileYAML->getValue(),
+                    /*excludeFromFileList=*/true));
+  LLVM_DEBUG({ llvm::dbgs() << "Generated YAML:" << yamlString << "\n"; });
+}
+
 //===----------------------------------------------------------------------===//
 // Pass Creation
 //===----------------------------------------------------------------------===//
 
 std::unique_ptr<mlir::Pass>
-circt::firrtl::createGrandCentralPass(bool instantiateCompanionOnly) {
-  return std::make_unique<GrandCentralPass>(instantiateCompanionOnly);
+circt::firrtl::createGrandCentralPass(CompanionMode companionMode) {
+  auto pass = std::make_unique<GrandCentralPass>();
+  pass->companionMode = companionMode;
+  return pass;
 }

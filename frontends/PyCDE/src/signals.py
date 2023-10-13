@@ -134,13 +134,11 @@ class Signal:
     if hasattr(owner,
                "attributes") and self._namehint_attrname in owner.attributes:
       return ir.StringAttr(owner.attributes[self._namehint_attrname]).value
-    from .circt.dialects import msft
-    if isinstance(owner, ir.Block) and isinstance(owner.owner,
-                                                  msft.MSFTModuleOp):
+    from .circt.dialects import hw
+    if isinstance(owner, ir.Block) and isinstance(owner.owner, hw.HWModuleOp):
       block_arg = ir.BlockArgument(self.value)
-      mod = owner.owner
-      return ir.StringAttr(
-          ir.ArrayAttr(mod.attributes["argNames"])[block_arg.arg_number]).value
+      mod_type = hw.ModuleType(owner.owner.module_type.value)
+      return mod_type.input_names[block_arg.arg_number]
     if hasattr(self, "_name"):
       return self._name
 
@@ -162,7 +160,7 @@ class Signal:
 
   @appid.setter
   def appid(self, appid) -> None:
-    if "sym_name" not in self.value.owner.attributes:
+    if "inner_sym" not in self.value.owner.attributes:
       raise ValueError("AppIDs can only be attached to ops with symbols")
     from .module import AppID
     self.value.owner.attributes[AppID.AttributeName] = appid._appid
@@ -248,7 +246,10 @@ class BitVectorSignal(Signal):
 
     if isinstance(self, targetValueType) and width == self.type.width:
       return self
-    return hwarith.CastOp(self.value, type_getter(width))
+    cast = hwarith.CastOp(self.value, type_getter(width))
+    if self.name is not None:
+      cast.name = self.name
+    return cast
 
   def as_bits(self, width: int = None):
     """
@@ -270,6 +271,18 @@ class BitVectorSignal(Signal):
     value will be truncated or zero-padded to that width.
     """
     return self._exec_cast(UIntSignal, ir.IntegerType.get_unsigned, width)
+
+
+def And(*items: List[BitVectorSignal]):
+  """Compute a bitwise 'and' of the arguments."""
+  from .dialects import comb
+  return comb.AndOp(*items)
+
+
+def Or(*items: List[BitVectorSignal]):
+  """Compute a bitwise 'or' of the arguments."""
+  from .dialects import comb
+  return comb.OrOp(*items)
 
 
 class BitsSignal(BitVectorSignal):
@@ -331,6 +344,18 @@ class BitsSignal(BitVectorSignal):
     if self.name is not None:
       v.name = f"{self.name}_padto_{num_bits}"
     return v
+
+  def and_reduce(self):
+    from .types import types
+    bits = [self[i] for i in range(len(self))]
+    assert bits[0].type == types.i1
+    return And(*bits)
+
+  def or_reduce(self):
+    from .types import types
+    bits = [self[i] for i in range(len(self))]
+    assert bits[0].type == types.i1
+    return Or(*bits)
 
   # === Infix operators ===
 
@@ -462,16 +487,21 @@ class IntSignal(BitVectorSignal):
     from .circt.dialects import hwarith
     return self.__exec_icmp__(other, hwarith.ICmpOp.PRED_NE, "neq")
 
-  # TODO: This class will contain comparison operators (<, >, <=, >=)
-
   def __lt__(self, other):
-    assert False, "Unimplemented"
+    from .circt.dialects import hwarith
+    return self.__exec_icmp__(other, hwarith.ICmpOp.PRED_LT, "lt")
+
+  def __gt__(self, other):
+    from .circt.dialects import hwarith
+    return self.__exec_icmp__(other, hwarith.ICmpOp.PRED_GT, "gt")
 
   def __le__(self, other):
-    assert False, "Unimplemented"
+    from .circt.dialects import hwarith
+    return self.__exec_icmp__(other, hwarith.ICmpOp.PRED_LE, "le")
 
   def __ge__(self, other):
-    assert False, "Unimplemented"
+    from .circt.dialects import hwarith
+    return self.__exec_icmp__(other, hwarith.ICmpOp.PRED_GE, "ge")
 
 
 class UIntSignal(IntSignal):
@@ -483,18 +513,6 @@ class SIntSignal(IntSignal):
   def __neg__(self):
     from .types import types
     return self * types.int(self.type.width)(-1).as_sint()
-
-
-def Or(*items: List[BitVectorSignal]):
-  """Compute a bitwise 'or' of the arguments."""
-  from .dialects import comb
-  return comb.OrOp(*items)
-
-
-def And(*items: List[BitVectorSignal]):
-  """Compute a bitwise 'and' of the arguments."""
-  from .dialects import comb
-  return comb.AndOp(*items)
 
 
 class ArraySignal(Signal):
@@ -544,6 +562,12 @@ class ArraySignal(Signal):
       if self.name and isinstance(low_idx, int):
         v.name = self.name + f"__{low_idx}upto{low_idx+num_elems}"
       return v
+
+  def and_reduce(self):
+    from .types import types
+    bits = [self[i] for i in range(len(self))]
+    assert bits[0].type == types.i1
+    return And(*bits)
 
   def or_reduce(self):
     from .types import types

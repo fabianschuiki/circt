@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 include "circt/Dialect/HW/HWTypes.td"
+include "circt/Dialect/Seq/SeqTypes.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
 
@@ -21,7 +22,7 @@ def MatrixType : DialectType<HWDialect,
 
 
 // SystolicArray starting with an MVP then we'll be making it more generic.
-def SystolicArrayOp : MSFTOp<"systolic.array", 
+def SystolicArrayOp : MSFTOp<"systolic.array",
           [SingleBlockImplicitTerminator<"PEOutputOp"> ]> {
   let summary = "Model of a row/column broadcast systolic array";
   // TODO: flesh out description once we've proved this op out.
@@ -45,7 +46,7 @@ def PEOutputOp: MSFTOp<"pe.output", [Terminator]> {
 }
 
 def ChannelOp: MSFTOp<"constructs.channel",
-    [Pure, Symbol, HasParent<"MSFTModuleOp">,
+    [Pure, Symbol,
      AllTypesMatch<["input", "output"]>]> {
 
   let summary = "A pipeline-able connection";
@@ -59,7 +60,7 @@ def ChannelOp: MSFTOp<"constructs.channel",
     is always used.
   }];
 
-  let arguments = (ins AnyType:$input, I1:$clk, StrAttr:$sym_name,
+  let arguments = (ins AnyType:$input, ClockType:$clk, StrAttr:$sym_name,
                        UI64Attr:$defaultStages);
   let results = (outs AnyType:$output);
 
@@ -90,7 +91,7 @@ def LinearOp : MSFTOp<"hlc.linear", [
     ```
   }];
 
-  let arguments = (ins I1:$clock);
+  let arguments = (ins ClockType:$clock);
   let results = (outs Variadic<AnyType>:$outs);
   let regions = (region SizedRegion<1>:$datapath);
 
@@ -100,4 +101,16 @@ def LinearOp : MSFTOp<"hlc.linear", [
 
   let hasVerifier = 1;
   let assemblyFormat = [{ `clock` $clock attr-dict `:` type($outs) $datapath }];
+}
+
+def OutputOp : MSFTOp<"output", [Terminator,
+                                Pure, ReturnLike]> {
+  let summary = "termination operation";
+
+  let arguments = (ins Variadic<AnyType>:$operands);
+  let builders = [
+    OpBuilder<(ins)>
+  ];
+
+  let assemblyFormat = "attr-dict ($operands^ `:` qualified(type($operands)))?";
 }

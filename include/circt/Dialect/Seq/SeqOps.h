@@ -13,15 +13,20 @@
 #ifndef CIRCT_DIALECT_SEQ_SEQOPS_H
 #define CIRCT_DIALECT_SEQ_SEQOPS_H
 
+#include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+#include "circt/Dialect/HW/HWAttributes.h"
+#include "circt/Dialect/HW/HWOpInterfaces.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqAttributes.h"
 #include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Dialect/Seq/SeqOpInterfaces.h"
 #include "circt/Dialect/Seq/SeqTypes.h"
+#include "circt/Support/BuilderUtils.h"
 
 #define GET_OP_CLASSES
 #include "circt/Dialect/Seq/Seq.h.inc"

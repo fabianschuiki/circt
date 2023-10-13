@@ -113,7 +113,7 @@ getCiderSourceLocationMetadata(calyx::ComponentOp component,
 }
 
 bool matchConstantOp(Operation *op, APInt &value) {
-  return mlir::detail::constant_int_op_binder(&value).match(op);
+  return mlir::detail::constant_int_value_binder(&value).match(op);
 }
 
 bool singleLoadFromMemory(Value memoryReference) {
@@ -159,50 +159,128 @@ void buildAssignmentsForRegisterWrite(OpBuilder &builder,
 // MemoryInterface
 //===----------------------------------------------------------------------===//
 
-MemoryInterface::MemoryInterface() {}
+MemoryInterface::MemoryInterface() = default;
 MemoryInterface::MemoryInterface(const MemoryPortsImpl &ports) : impl(ports) {}
 MemoryInterface::MemoryInterface(calyx::MemoryOp memOp) : impl(memOp) {}
+MemoryInterface::MemoryInterface(calyx::SeqMemoryOp memOp) : impl(memOp) {}
 
 Value MemoryInterface::readData() {
+  auto readData = readDataOpt();
+  assert(readData.has_value() && "Memory does not have readData");
+  return readData.value();
+}
+
+Value MemoryInterface::readEn() {
+  auto readEn = readEnOpt();
+  assert(readEn.has_value() && "Memory does not have readEn");
+  return readEn.value();
+}
+
+Value MemoryInterface::readDone() {
+  auto readDone = readDoneOpt();
+  assert(readDone.has_value() && "Memory does not have readDone");
+  return readDone.value();
+}
+
+Value MemoryInterface::writeData() {
+  auto writeData = writeDataOpt();
+  assert(writeData.has_value() && "Memory does not have writeData");
+  return writeData.value();
+}
+
+Value MemoryInterface::writeEn() {
+  auto writeEn = writeEnOpt();
+  assert(writeEn.has_value() && "Memory does not have writeEn");
+  return writeEn.value();
+}
+
+Value MemoryInterface::writeDone() {
+  auto writeDone = writeDoneOpt();
+  assert(writeDone.has_value() && "Memory doe snot have writeDone");
+  return writeDone.value();
+}
+
+std::optional<Value> MemoryInterface::readDataOpt() {
   if (auto *memOp = std::get_if<calyx::MemoryOp>(&impl); memOp) {
+    return memOp->readData();
+  }
+
+  if (auto *memOp = std::get_if<calyx::SeqMemoryOp>(&impl); memOp) {
     return memOp->readData();
   }
   return std::get<MemoryPortsImpl>(impl).readData;
 }
 
-Value MemoryInterface::done() {
+std::optional<Value> MemoryInterface::readEnOpt() {
   if (auto *memOp = std::get_if<calyx::MemoryOp>(&impl); memOp) {
-    return memOp->done();
+    return std::nullopt;
   }
-  return std::get<MemoryPortsImpl>(impl).done;
+
+  if (auto *memOp = std::get_if<calyx::SeqMemoryOp>(&impl); memOp) {
+    return memOp->readEn();
+  }
+  return std::get<MemoryPortsImpl>(impl).readEn;
 }
 
-Value MemoryInterface::writeData() {
+std::optional<Value> MemoryInterface::readDoneOpt() {
   if (auto *memOp = std::get_if<calyx::MemoryOp>(&impl); memOp) {
+    return std::nullopt;
+  }
+
+  if (auto *memOp = std::get_if<calyx::SeqMemoryOp>(&impl); memOp) {
+    return memOp->readDone();
+  }
+  return std::get<MemoryPortsImpl>(impl).readDone;
+}
+std::optional<Value> MemoryInterface::writeDataOpt() {
+  if (auto *memOp = std::get_if<calyx::MemoryOp>(&impl); memOp) {
+    return memOp->writeData();
+  }
+
+  if (auto *memOp = std::get_if<calyx::SeqMemoryOp>(&impl); memOp) {
     return memOp->writeData();
   }
   return std::get<MemoryPortsImpl>(impl).writeData;
 }
 
-Value MemoryInterface::writeEn() {
+std::optional<Value> MemoryInterface::writeEnOpt() {
   if (auto *memOp = std::get_if<calyx::MemoryOp>(&impl); memOp) {
     return memOp->writeEn();
   }
+
+  if (auto *memOp = std::get_if<calyx::SeqMemoryOp>(&impl); memOp) {
+    return memOp->writeEn();
+  }
   return std::get<MemoryPortsImpl>(impl).writeEn;
+}
+
+std::optional<Value> MemoryInterface::writeDoneOpt() {
+  if (auto *memOp = std::get_if<calyx::MemoryOp>(&impl); memOp) {
+    return memOp->done();
+  }
+
+  if (auto *memOp = std::get_if<calyx::SeqMemoryOp>(&impl); memOp) {
+    return memOp->writeDone();
+  }
+  return std::get<MemoryPortsImpl>(impl).writeDone;
 }
 
 ValueRange MemoryInterface::addrPorts() {
   if (auto *memOp = std::get_if<calyx::MemoryOp>(&impl); memOp) {
     return memOp->addrPorts();
   }
+
+  if (auto *memOp = std::get_if<calyx::SeqMemoryOp>(&impl); memOp) {
+    return memOp->addrPorts();
+  }
   return std::get<MemoryPortsImpl>(impl).addrPorts;
 }
 
 //===----------------------------------------------------------------------===//
-// LoopInterface
+// BasicLoopInterface
 //===----------------------------------------------------------------------===//
 
-LoopInterface::~LoopInterface() = default;
+BasicLoopInterface::~BasicLoopInterface() = default;
 
 //===----------------------------------------------------------------------===//
 // ComponentLoweringStateInterface
@@ -317,6 +395,15 @@ unsigned ComponentLoweringStateInterface::getFuncOpResultMapping(
          "No component return port index recorded for the requested function "
          "return index");
   return it->second;
+}
+
+InstanceOp ComponentLoweringStateInterface::getInstance(StringRef calleeName) {
+  return instanceMap[calleeName];
+}
+
+void ComponentLoweringStateInterface::addInstance(StringRef calleeName,
+                                                  InstanceOp instanceOp) {
+  instanceMap[calleeName] = instanceOp;
 }
 
 //===----------------------------------------------------------------------===//
@@ -552,10 +639,11 @@ void InlineCombGroups::recurseInlineCombGroups(
     //   been rewritten to their register outputs, see comment in
     //   LateSSAReplacement)
     if (src.isa<BlockArgument>() ||
-        isa<calyx::RegisterOp, calyx::MemoryOp, hw::ConstantOp,
-            mlir::arith::ConstantOp, calyx::MultPipeLibOp, calyx::DivUPipeLibOp,
-            calyx::DivSPipeLibOp, calyx::RemSPipeLibOp, calyx::RemUPipeLibOp,
-            mlir::scf::WhileOp>(src.getDefiningOp()))
+        isa<calyx::RegisterOp, calyx::MemoryOp, calyx::SeqMemoryOp,
+            hw::ConstantOp, mlir::arith::ConstantOp, calyx::MultPipeLibOp,
+            calyx::DivUPipeLibOp, calyx::DivSPipeLibOp, calyx::RemSPipeLibOp,
+            calyx::RemUPipeLibOp, mlir::scf::WhileOp, calyx::InstanceOp>(
+            src.getDefiningOp()))
       continue;
 
     auto srcCombGroup = dyn_cast<calyx::CombGroupOp>(
@@ -664,6 +752,64 @@ BuildReturnRegs::partiallyLowerFuncToComp(mlir::func::FuncOp funcOp,
         reg.getOut());
   }
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// BuildCallInstance
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+BuildCallInstance::partiallyLowerFuncToComp(mlir::func::FuncOp funcOp,
+                                            PatternRewriter &rewriter) const {
+  funcOp.walk([&](mlir::func::CallOp callOp) {
+    ComponentOp componentOp = getCallComponent(callOp);
+    SmallVector<Type, 8> resultTypes;
+    for (auto type : componentOp.getArgumentTypes())
+      resultTypes.push_back(type);
+    for (auto type : componentOp.getResultTypes())
+      resultTypes.push_back(type);
+    std::string instanceName = getInstanceName(callOp);
+
+    // Determines if an instance needs to be created. If the same function was
+    // called by CallOp before, it doesn't need to be created, if not, the
+    // instance is created.
+    if (!getState().getInstance(instanceName)) {
+      InstanceOp instanceOp =
+          createInstance(callOp.getLoc(), rewriter, getComponent(), resultTypes,
+                         instanceName, componentOp.getName());
+      getState().addInstance(instanceName, instanceOp);
+      hw::ConstantOp constantOp =
+          createConstant(callOp.getLoc(), rewriter, getComponent(), 1, 1);
+      OpBuilder::InsertionGuard g(rewriter);
+      rewriter.setInsertionPointToStart(
+          getComponent().getWiresOp().getBodyBlock());
+
+      // Creates the group that initializes the instance.
+      calyx::GroupOp groupOp = rewriter.create<calyx::GroupOp>(
+          callOp.getLoc(), "init_" + instanceName);
+      rewriter.setInsertionPointToStart(groupOp.getBodyBlock());
+      auto portInfos = instanceOp.getReferencedComponent().getPortInfo();
+      auto results = instanceOp.getResults();
+      for (const auto &[portInfo, result] : llvm::zip(portInfos, results)) {
+        if (portInfo.hasAttribute("go") || portInfo.hasAttribute("reset"))
+          rewriter.create<calyx::AssignOp>(callOp.getLoc(), result, constantOp);
+        else if (portInfo.hasAttribute("done"))
+          rewriter.create<calyx::GroupDoneOp>(callOp.getLoc(), result);
+      }
+    }
+    WalkResult::advance();
+  });
+  return success();
+}
+
+ComponentOp
+BuildCallInstance::getCallComponent(mlir::func::CallOp callOp) const {
+  std::string callee = "func_" + callOp.getCallee().str();
+  for (auto [funcOp, componentOp] : functionMapping) {
+    if (funcOp.getSymName() == callee)
+      return componentOp;
+  }
+  return nullptr;
 }
 
 } // namespace calyx

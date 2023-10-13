@@ -52,6 +52,10 @@ namespace arc {
 class ArcDialect;
 } // namespace arc
 
+namespace dc {
+class DCDialect;
+} // namespace dc
+
 namespace fsm {
 class FSMDialect;
 } // namespace fsm
@@ -83,6 +87,10 @@ class MooreDialect;
 namespace llhd {
 class LLHDDialect;
 } // namespace llhd
+
+namespace ltl {
+class LTLDialect;
+} // namespace ltl
 
 namespace loopschedule {
 class LoopScheduleDialect;
@@ -120,6 +128,10 @@ class FSMDialect;
 namespace systemc {
 class SystemCDialect;
 } // namespace systemc
+
+namespace verif {
+class VerifDialect;
+} // namespace verif
 
 // Generate the classes which represent the passes
 #define GEN_PASS_CLASSES

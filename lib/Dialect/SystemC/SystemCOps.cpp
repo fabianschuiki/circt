@@ -15,9 +15,9 @@
 #include "circt/Dialect/HW/HWSymCache.h"
 #include "circt/Dialect/HW/ModuleImplementation.h"
 #include "circt/Support/CustomDirectiveImpl.h"
-#include "mlir/IR/FunctionImplementation.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/FunctionImplementation.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -99,15 +99,16 @@ static LogicalResult verifyUniqueNamesInRegion(
 // SCModuleOp
 //===----------------------------------------------------------------------===//
 
-static hw::PortDirection getDirection(Type type) {
-  return TypeSwitch<Type, hw::PortDirection>(type)
-      .Case<InOutType>([](auto ty) { return hw::PortDirection::INOUT; })
-      .Case<InputType>([](auto ty) { return hw::PortDirection::INPUT; })
-      .Case<OutputType>([](auto ty) { return hw::PortDirection::OUTPUT; });
+static hw::ModulePort::Direction getDirection(Type type) {
+  return TypeSwitch<Type, hw::ModulePort::Direction>(type)
+      .Case<InOutType>([](auto ty) { return hw::ModulePort::Direction::InOut; })
+      .Case<InputType>([](auto ty) { return hw::ModulePort::Direction::Input; })
+      .Case<OutputType>(
+          [](auto ty) { return hw::ModulePort::Direction::Output; });
 }
 
 SCModuleOp::PortDirectionRange
-SCModuleOp::getPortsOfDirection(hw::PortDirection direction) {
+SCModuleOp::getPortsOfDirection(hw::ModulePort::Direction direction) {
   std::function<bool(const BlockArgument &)> predicateFn =
       [&](const BlockArgument &arg) -> bool {
     return getDirection(arg.getType()) == direction;
@@ -115,29 +116,19 @@ SCModuleOp::getPortsOfDirection(hw::PortDirection direction) {
   return llvm::make_filter_range(getArguments(), predicateFn);
 }
 
-void SCModuleOp::getPortInfoList(SmallVectorImpl<hw::PortInfo> &portInfoList) {
+SmallVector<::circt::hw::PortInfo> SCModuleOp::getPortList() {
+  SmallVector<hw::PortInfo> ports;
   for (int i = 0, e = getNumArguments(); i < e; ++i) {
     hw::PortInfo info;
     info.name = getPortNames()[i].cast<StringAttr>();
     info.type = getSignalBaseType(getArgument(i).getType());
-    info.direction = getDirection(info.type);
-    portInfoList.push_back(info);
+    info.dir = getDirection(info.type);
+    ports.push_back(info);
   }
+  return ports;
 }
 
 mlir::Region *SCModuleOp::getCallableRegion() { return &getBody(); }
-
-ArrayRef<mlir::Type> SCModuleOp::getCallableResults() {
-  return getResultTypes();
-}
-
-ArrayAttr SCModuleOp::getCallableArgAttrs() {
-  return getArgAttrs().value_or(nullptr);
-}
-
-ArrayAttr SCModuleOp::getCallableResAttrs() {
-  return getResAttrs().value_or(nullptr);
-}
 
 StringRef SCModuleOp::getModuleName() {
   return (*this)
@@ -218,16 +209,26 @@ void SCModuleOp::print(OpAsmPrinter &p) {
   p.printRegion(getBody(), false, false);
 }
 
-static Type wrapPortType(Type type, hw::PortDirection direction) {
+/// Returns the argument types of this function.
+ArrayRef<Type> SCModuleOp::getArgumentTypes() {
+  return getFunctionType().getInputs();
+}
+
+/// Returns the result types of this function.
+ArrayRef<Type> SCModuleOp::getResultTypes() {
+  return getFunctionType().getResults();
+}
+
+static Type wrapPortType(Type type, hw::ModulePort::Direction direction) {
   if (auto inoutTy = type.dyn_cast<hw::InOutType>())
     type = inoutTy.getElementType();
 
   switch (direction) {
-  case hw::PortDirection::INOUT:
+  case hw::ModulePort::Direction::InOut:
     return InOutType::get(type);
-  case hw::PortDirection::INPUT:
+  case hw::ModulePort::Direction::Input:
     return InputType::get(type);
-  case hw::PortDirection::OUTPUT:
+  case hw::ModulePort::Direction::Output:
     return OutputType::get(type);
   }
   llvm_unreachable("Impossible port direction");
@@ -260,7 +261,7 @@ void SCModuleOp::build(OpBuilder &odsBuilder, OperationState &odsState,
   SmallVector<Type> portTypes;
   for (auto port : ports) {
     portNames.push_back(StringAttr::get(ctxt, port.getName()));
-    portTypes.push_back(wrapPortType(port.type, port.direction));
+    portTypes.push_back(wrapPortType(port.type, port.dir));
   }
   build(odsBuilder, odsState, name, ArrayAttr::get(ctxt, portNames), portTypes);
 }
@@ -268,9 +269,14 @@ void SCModuleOp::build(OpBuilder &odsBuilder, OperationState &odsState,
 void SCModuleOp::build(OpBuilder &odsBuilder, OperationState &odsState,
                        StringAttr name, const hw::ModulePortInfo &ports,
                        ArrayRef<NamedAttribute> attributes) {
-  SmallVector<hw::PortInfo> portInfos(ports.inputs);
-  portInfos.append(ports.outputs);
-  build(odsBuilder, odsState, name, portInfos, attributes);
+  MLIRContext *ctxt = odsBuilder.getContext();
+  SmallVector<Attribute> portNames;
+  SmallVector<Type> portTypes;
+  for (auto port : ports) {
+    portNames.push_back(StringAttr::get(ctxt, port.getName()));
+    portTypes.push_back(wrapPortType(port.type, port.dir));
+  }
+  build(odsBuilder, odsState, name, ArrayAttr::get(ctxt, portNames), portTypes);
 }
 
 void SCModuleOp::getAsmBlockArgumentNames(mlir::Region &region,
@@ -451,7 +457,8 @@ void InstanceDeclOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 StringRef InstanceDeclOp::getInstanceName() { return getName(); }
 StringAttr InstanceDeclOp::getInstanceNameAttr() { return getNameAttr(); }
 
-Operation *InstanceDeclOp::getReferencedModule(const hw::HWSymbolCache *cache) {
+Operation *
+InstanceDeclOp::getReferencedModuleCached(const hw::HWSymbolCache *cache) {
   if (cache)
     if (auto *result = cache->getDefinition(getModuleNameAttr()))
       return result;
@@ -460,8 +467,9 @@ Operation *InstanceDeclOp::getReferencedModule(const hw::HWSymbolCache *cache) {
   return topLevelModuleOp.lookupSymbol(getModuleName());
 }
 
-Operation *InstanceDeclOp::getReferencedModule() {
-  return getReferencedModule(/*cache=*/nullptr);
+Operation *InstanceDeclOp::getReferencedModuleSlow() {
+  auto topLevelModuleOp = (*this)->getParentOfType<ModuleOp>();
+  return topLevelModuleOp.lookupSymbol(getModuleName());
 }
 
 LogicalResult
@@ -525,6 +533,10 @@ InstanceDeclOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   }
 
   return success();
+}
+
+SmallVector<hw::PortInfo> InstanceDeclOp::getPortList() {
+  return cast<hw::PortList>(getReferencedModuleSlow()).getPortList();
 }
 
 //===----------------------------------------------------------------------===//
@@ -711,9 +723,10 @@ LogicalResult VariableOp::verify() {
 void InteropVerilatedOp::build(OpBuilder &odsBuilder, OperationState &odsState,
                                Operation *module, StringAttr name,
                                ArrayRef<Value> inputs) {
-  auto [argNames, resultNames] =
-      hw::instance_like_impl::getHWModuleArgAndResultNames(module);
-  build(odsBuilder, odsState, hw::getModuleType(module).getResults(), name,
+  auto mod = cast<hw::HWModuleLike>(module);
+  auto argNames = odsBuilder.getArrayAttr(mod.getInputNames());
+  auto resultNames = odsBuilder.getArrayAttr(mod.getOutputNames());
+  build(odsBuilder, odsState, mod.getHWModuleType().getOutputTypes(), name,
         FlatSymbolRefAttr::get(SymbolTable::getSymbolName(module)), argNames,
         resultNames, inputs);
 }

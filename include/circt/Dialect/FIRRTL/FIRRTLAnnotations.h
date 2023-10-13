@@ -19,6 +19,9 @@
 #include "llvm/Support/PointerLikeTypeTraits.h"
 
 namespace circt {
+namespace hw {
+struct InnerSymbolNamespace;
+} // namespace hw
 namespace firrtl {
 
 class AnnotationSetIterator;
@@ -26,7 +29,6 @@ class FModuleOp;
 class FModuleLike;
 class MemOp;
 class InstanceOp;
-struct ModuleNamespace;
 class FIRRTLType;
 
 /// Return the name of the attribute used for annotations on FIRRTL ops.
@@ -90,6 +92,10 @@ public:
   /// Remove a member of the annotation.
   void removeMember(StringAttr name);
   void removeMember(StringRef name);
+
+  /// Returns true if this is an annotation which can be safely deleted without
+  /// consequence.
+  bool canBeDeleted();
 
   using iterator = llvm::ArrayRef<NamedAttribute>::iterator;
   iterator begin() const { return getDict().begin(); }
@@ -261,6 +267,10 @@ public:
   static bool addDontTouch(Operation *op);
   static bool removeDontTouch(Operation *op);
 
+  /// Check if every annotation can be deleted.
+  bool canBeDeleted() const;
+  static bool canBeDeleted(Operation *op);
+
   bool operator==(const AnnotationSet &other) const {
     return annotations == other.annotations;
   }
@@ -424,12 +434,8 @@ struct AnnoTarget {
   /// Get the parent module of the target.
   FModuleLike getModule() const;
 
-  /// Get the inner_sym attribute of an op.  If there is no attached inner_sym,
-  /// then one will be created and attached to the op.
-  StringAttr getInnerSym(ModuleNamespace &moduleNamespace) const;
-
   /// Get a reference to this target suitable for use in an NLA.
-  Attribute getNLAReference(ModuleNamespace &moduleNamespace) const;
+  Attribute getNLAReference(hw::InnerSymbolNamespace &moduleNamespace) const;
 
   /// Get the type of the target.
   FIRRTLType getType() const;
@@ -448,8 +454,7 @@ struct OpAnnoTarget : public AnnoTarget {
 
   AnnotationSet getAnnotations() const;
   void setAnnotations(AnnotationSet annotations) const;
-  StringAttr getInnerSym(ModuleNamespace &moduleNamespace) const;
-  Attribute getNLAReference(ModuleNamespace &moduleNamespace) const;
+  Attribute getNLAReference(hw::InnerSymbolNamespace &moduleNamespace) const;
   FIRRTLType getType() const;
 
   static bool classof(const AnnoTarget &annoTarget) {
@@ -470,8 +475,7 @@ struct PortAnnoTarget : public AnnoTarget {
 
   AnnotationSet getAnnotations() const;
   void setAnnotations(AnnotationSet annotations) const;
-  StringAttr getInnerSym(ModuleNamespace &moduleNamespace) const;
-  Attribute getNLAReference(ModuleNamespace &moduleNamespace) const;
+  Attribute getNLAReference(hw::InnerSymbolNamespace &moduleNamespace) const;
   FIRRTLType getType() const;
 
   static bool classof(const AnnoTarget &annoTarget) {

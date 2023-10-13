@@ -13,11 +13,14 @@ add_circt_dialect_library(CIRCTPipelineOps
 
   LINK_LIBS PUBLIC
   CIRCTESI
+  CIRCTSeq
+  CIRCTSupport
   MLIRArithDialect
   MLIRFuncDialect
   MLIRIR
 
   DEPENDS
+  MLIRArithDialect
   MLIRPipelineIncGen
 )
 

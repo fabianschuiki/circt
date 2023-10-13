@@ -19,7 +19,12 @@
 using namespace circt;
 using namespace ImportVerilog;
 
+<<<<<<< HEAD
 LogicalResult Context::convertCompilation() {
+=======
+LogicalResult
+Context::convertCompilation(slang::ast::Compilation &compilation) {
+>>>>>>> slang-frontend/slang-frontend
   auto &root = compilation.getRoot();
 
   // Visit all the compilation units. This will mainly cover non-instantiable
@@ -114,6 +119,15 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     if (member.kind == slang::ast::SymbolKind::Parameter)
       continue;
 
+<<<<<<< HEAD
+=======
+    // Skip type-related declarations. These are absorbedby the types.
+    if (member.kind == slang::ast::SymbolKind::TypeAlias ||
+        member.kind == slang::ast::SymbolKind::TypeParameter ||
+        member.kind == slang::ast::SymbolKind::TransparentMember)
+      continue;
+
+>>>>>>> slang-frontend/slang-frontend
     // Handle instances.
     if (auto *instAst = member.as_if<slang::ast::InstanceSymbol>()) {
       auto *targetModule = convertModuleHeader(&instAst->body);
@@ -195,7 +209,6 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     // things we don't support.
     mlir::emitWarning(loc, "unsupported construct ignored: ")
         << slang::ast::toString(member.kind);
-    return failure();
   }
 
   return success();

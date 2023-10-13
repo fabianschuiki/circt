@@ -6,23 +6,39 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetails.h"
+#include "circt/Dialect/Arc/ArcOps.h"
+#include "circt/Dialect/Arc/ArcPasses.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/Namespace.h"
+#include "circt/Support/SymCache.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
+#include "mlir/Pass/Pass.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "arc-infer-memories"
+
+namespace circt {
+namespace arc {
+#define GEN_PASS_DEF_INFERMEMORIES
+#include "circt/Dialect/Arc/ArcPasses.h.inc"
+} // namespace arc
+} // namespace circt
 
 using namespace circt;
 using namespace arc;
 
 namespace {
-struct InferMemoriesPass : public InferMemoriesBase<InferMemoriesPass> {
+struct InferMemoriesPass
+    : public arc::impl::InferMemoriesBase<InferMemoriesPass> {
   void runOnOperation() override;
+
   SmallVector<Operation *> opsToDelete;
   SmallPtrSet<StringAttr, 2> schemaNames;
   DenseMap<StringAttr, DictionaryAttr> memoryParams;
+
+  using InferMemoriesBase::tapPorts;
 };
 } // namespace
 
@@ -31,6 +47,11 @@ void InferMemoriesPass::runOnOperation() {
   opsToDelete.clear();
   schemaNames.clear();
   memoryParams.clear();
+
+  SymbolCache cache;
+  cache.addDefinitions(module);
+  Namespace names;
+  names.add(cache);
 
   // Find the matching generator schemas.
   for (auto schemaOp : module.getOps<hw::HWGeneratorSchemaOp>()) {
@@ -75,9 +96,25 @@ void InferMemoriesPass::runOnOperation() {
       return signalPassFailure();
     }
 
+    // FIRRTL memories are currently underspecified. They have a single read
+    // latency, but it is unclear where within this latency the read of the
+    // underlying storage happens. The `HWMemSimImpl` pass implements memories
+    // such that the storage is probed at the very end of the latency, and that
+    // the probed value becomes available immediately. We keep the latencies
+    // configurable here, in the hopes that we'll improve our memory
+    // abstractions at some point.
+    unsigned readPreLatency = readLatency; // cycles before storage is read
+    unsigned readPostLatency = 0; // cycles to move read value to output
+
     ImplicitLocOpBuilder builder(instOp.getLoc(), instOp);
     auto wordType = builder.getIntegerType(width);
-    auto memType = MemoryType::get(&getContext(), depth, wordType, {});
+    auto addressTy = dyn_cast<IntegerType>(instOp.getOperand(0).getType());
+    if (!addressTy) {
+      instOp.emitError("expected integer type for memory addressing, got ")
+          << addressTy;
+      return signalPassFailure();
+    }
+    auto memType = MemoryType::get(&getContext(), depth, wordType, addressTy);
     auto memOp = builder.create<MemoryOp>(memType);
     if (!instOp.getInstanceName().empty())
       memOp->setAttr("name", instOp.getInstanceNameAttr());
@@ -85,13 +122,27 @@ void InferMemoriesPass::runOnOperation() {
     unsigned argIdx = 0;
     unsigned resultIdx = 0;
 
-    auto applyReadLatency = [&](Value clock, Value data) {
-      for (unsigned i = 0; i < readLatency; ++i)
-        data = builder.create<seq::CompRegOp>(data, clock, "mem_read_latency");
+    auto applyLatency = [&](Value clock, Value data, unsigned latency) {
+      for (unsigned i = 0; i < latency; ++i)
+        data = builder.create<seq::CompRegOp>(
+            data, clock, builder.getStringAttr(""), Value{}, Value{}, Value{},
+            hw::InnerSymAttr{});
       return data;
     };
 
-    SmallVector<std::array<Value, 6>> writePorts;
+    SmallVector<std::tuple<Value, Value, SmallVector<Value>, bool, bool>>
+        writePorts;
+
+    // Use `<inst-name>/` as the prefix for all port taps.
+    SmallString<64> tapPrefix(instOp.getInstanceName());
+    if (!tapPrefix.empty())
+      tapPrefix.push_back('/');
+    auto tapPrefixBaseLen = tapPrefix.size();
+
+    auto tap = [&](Value value, const Twine &name) {
+      auto prefixedName = builder.getStringAttr(tapPrefix + "_" + name);
+      builder.create<arc::TapOp>(value, prefixedName);
+    };
 
     // Handle read ports.
     auto numReadPorts =
@@ -101,9 +152,35 @@ void InferMemoriesPass::runOnOperation() {
       auto enable = instOp.getOperand(argIdx++);
       auto clock = instOp.getOperand(argIdx++);
       auto data = instOp.getResult(resultIdx++);
-      Value readOp = builder.create<MemoryReadPortOp>(wordType, memOp, address,
-                                                      clock, enable);
-      readOp = applyReadLatency(clock, readOp);
+
+      if (address.getType() != addressTy) {
+        instOp.emitOpError("expected ")
+            << addressTy << ", but got " << address.getType();
+        return signalPassFailure();
+      }
+
+      // Add port taps.
+      if (tapPorts) {
+        tapPrefix.resize(tapPrefixBaseLen);
+        (Twine("R") + Twine(portIdx)).toVector(tapPrefix);
+        tap(address, "addr");
+        tap(enable, "en");
+        tap(data, "data");
+      }
+
+      // Apply the latency before the underlying storage is accessed.
+      address = applyLatency(clock, address, readPreLatency);
+      enable = applyLatency(clock, enable, readPreLatency);
+
+      // Read the underlying storage. (The result of a disabled read port is
+      // undefined, currently we define it to be zero.)
+      Value readOp = builder.create<MemoryReadPortOp>(wordType, memOp, address);
+      Value zero = builder.create<hw::ConstantOp>(wordType, 0);
+      readOp = builder.create<comb::MuxOp>(enable, readOp, zero);
+
+      // Apply the latency after the underlying storage was accessed. (If the
+      // latency is 0, the memory read is combinatorial without any buffer.)
+      readOp = applyLatency(clock, readOp, readPostLatency);
       data.replaceAllUsesWith(readOp);
     }
 
@@ -120,11 +197,39 @@ void InferMemoriesPass::runOnOperation() {
       auto writeMask = maskBits > 1 ? instOp.getOperand(argIdx++) : Value{};
       auto readData = instOp.getResult(resultIdx++);
 
-      auto constOne = builder.create<hw::ConstantOp>(builder.getI1Type(), 1);
-      auto readMode = builder.create<comb::XorOp>(writeMode, constOne);
-      auto readEnable = builder.create<comb::AndOp>(enable, readMode);
-      Value readOp = builder.create<MemoryReadPortOp>(wordType, memOp, address,
-                                                      clock, readEnable);
+      if (address.getType() != addressTy) {
+        instOp.emitOpError("expected ")
+            << addressTy << ", but got " << address.getType();
+        return signalPassFailure();
+      }
+
+      // Add port taps.
+      if (tapPorts) {
+        tapPrefix.resize(tapPrefixBaseLen);
+        (Twine("RW") + Twine(portIdx)).toVector(tapPrefix);
+        tap(address, "addr");
+        tap(enable, "en");
+        tap(writeMode, "wmode");
+        tap(writeData, "wdata");
+        if (writeMask)
+          tap(writeMask, "wmask");
+        tap(readData, "rdata");
+      }
+
+      auto c1_i1 = builder.create<hw::ConstantOp>(builder.getI1Type(), 1);
+      auto notWriteMode = builder.create<comb::XorOp>(writeMode, c1_i1);
+      Value readEnable = builder.create<comb::AndOp>(enable, notWriteMode);
+
+      // Apply the latency before the underlying storage is accessed.
+      Value readAddress = applyLatency(clock, address, readPreLatency);
+      readEnable = applyLatency(clock, readEnable, readPreLatency);
+
+      // Read the underlying storage. (The result of a disabled read port is
+      // undefined, currently we define it to be zero.)
+      Value readOp =
+          builder.create<MemoryReadPortOp>(wordType, memOp, readAddress);
+      Value zero = builder.create<hw::ConstantOp>(wordType, 0);
+      readOp = builder.create<comb::MuxOp>(readEnable, readOp, zero);
 
       if (writeMask) {
         unsigned maskWidth = writeMask.getType().cast<IntegerType>().getWidth();
@@ -134,16 +239,21 @@ void InferMemoriesPass::runOnOperation() {
           Value replicated = builder.create<comb::ReplicateOp>(bit, maskGran);
           toConcat.push_back(replicated);
         }
+        std::reverse(toConcat.begin(), toConcat.end()); // I hate concat
         writeMask =
             builder.create<comb::ConcatOp>(writeData.getType(), toConcat);
       }
 
-      readOp = applyReadLatency(clock, readOp);
+      // Apply the latency after the underlying storage was accessed. (If the
+      // latency is 0, the memory read is combinatorial without any buffer.)
+      readOp = applyLatency(clock, readOp, readPostLatency);
       readData.replaceAllUsesWith(readOp);
 
       auto writeEnable = builder.create<comb::AndOp>(enable, writeMode);
-      writePorts.push_back(
-          {memOp, address, clock, writeEnable, writeData, writeMask});
+      SmallVector<Value> inputs({address, writeData, writeEnable});
+      if (writeMask)
+        inputs.push_back(writeMask);
+      writePorts.push_back({memOp, clock, inputs, true, !!writeMask});
     }
 
     // Handle write ports.
@@ -156,6 +266,23 @@ void InferMemoriesPass::runOnOperation() {
       auto data = instOp.getOperand(argIdx++);
       auto mask = maskBits > 1 ? instOp.getOperand(argIdx++) : Value{};
 
+      if (address.getType() != addressTy) {
+        instOp.emitOpError("expected ")
+            << addressTy << ", but got " << address.getType();
+        return signalPassFailure();
+      }
+
+      // Add port taps.
+      if (tapPorts) {
+        tapPrefix.resize(tapPrefixBaseLen);
+        (Twine("W") + Twine(portIdx)).toVector(tapPrefix);
+        tap(address, "addr");
+        tap(enable, "en");
+        tap(data, "data");
+        if (mask)
+          tap(mask, "mask");
+      }
+
       if (mask) {
         unsigned maskWidth = mask.getType().cast<IntegerType>().getWidth();
         SmallVector<Value> toConcat;
@@ -164,17 +291,33 @@ void InferMemoriesPass::runOnOperation() {
           Value replicated = builder.create<comb::ReplicateOp>(bit, maskGran);
           toConcat.push_back(replicated);
         }
+        std::reverse(toConcat.begin(), toConcat.end()); // I hate concat
         mask = builder.create<comb::ConcatOp>(data.getType(), toConcat);
       }
-
-      writePorts.push_back({memOp, address, clock, enable, data, mask});
+      SmallVector<Value> inputs({address, data});
+      if (enable)
+        inputs.push_back(enable);
+      if (mask)
+        inputs.push_back(mask);
+      writePorts.push_back({memOp, clock, inputs, !!enable, !!mask});
     }
 
     // Create the actual write ports with a dependency arc to all read
     // ports.
-    for (auto [memOp, address, clock, enable, data, mask] : writePorts) {
-      builder.create<MemoryWritePortOp>(memOp, address, clock, enable, data,
-                                        mask);
+    for (auto [memOp, clock, inputs, hasEnable, hasMask] : writePorts) {
+      auto ipSave = builder.saveInsertionPoint();
+      TypeRange types = ValueRange(inputs).getTypes();
+      builder.setInsertionPointToStart(module.getBody());
+      auto defOp = builder.create<DefineOp>(
+          names.newName("mem_write"), builder.getFunctionType(types, types));
+      auto &block = defOp.getBody().emplaceBlock();
+      auto args = block.addArguments(
+          types, SmallVector<Location>(types.size(), builder.getLoc()));
+      builder.setInsertionPointToEnd(&block);
+      builder.create<arc::OutputOp>(SmallVector<Value>(args));
+      builder.restoreInsertionPoint(ipSave);
+      builder.create<MemoryWritePortOp>(memOp, defOp.getName(), inputs, clock,
+                                        hasEnable, hasMask);
     }
 
     opsToDelete.push_back(instOp);
@@ -185,6 +328,10 @@ void InferMemoriesPass::runOnOperation() {
     op->erase();
 }
 
-std::unique_ptr<Pass> arc::createInferMemoriesPass() {
-  return std::make_unique<InferMemoriesPass>();
+std::unique_ptr<Pass>
+arc::createInferMemoriesPass(std::optional<bool> tapPorts) {
+  auto pass = std::make_unique<InferMemoriesPass>();
+  if (tapPorts)
+    pass->tapPorts = *tapPorts;
+  return pass;
 }

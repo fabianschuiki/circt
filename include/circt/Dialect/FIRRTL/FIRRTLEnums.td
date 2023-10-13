@@ -16,6 +16,8 @@
 include "FIRRTLDialect.td"
 include "mlir/IR/EnumAttr.td"
 
+let cppNamespace = "::circt::firrtl" in {
+
 //===----------------------------------------------------------------------===//
 // Name Kinds
 //===----------------------------------------------------------------------===//
@@ -28,7 +30,6 @@ def InterestingName: I32EnumAttrCase<"InterestingName", 1, "interesting_name">;
 def NameKindEnumImpl: I32EnumAttr<"NameKindEnum", "name kind",
               [DroppableName, InterestingName]> {
   let genSpecializedAttr = 0;
-  let cppNamespace = "::circt::firrtl";
 }
 
 def NameKindAttr: EnumAttr<FIRRTLDialect, NameKindEnumImpl, "name_kind">;
@@ -44,6 +45,18 @@ def Convention : I32EnumAttr<"Convention", "lowering convention", [
 }
 
 def ConventionAttr : EnumAttr<FIRRTLDialect, Convention, "convention">;
+
+//===----------------------------------------------------------------------===//
+// Group Lowering Conventions
+//===----------------------------------------------------------------------===//
+
+def GroupConvention : I32EnumAttr<"GroupConvention", "group convention", [
+  I32EnumAttrCase<"Bind", 0, "bind">]> {
+
+  let genSpecializedAttr = 0;
+}
+
+def GroupConventionAttr : EnumAttr<FIRRTLDialect, GroupConvention, "groupconvention">;
 
 //===----------------------------------------------------------------------===//
 // Read Under Write Behaviour
@@ -82,5 +95,19 @@ def AtEdge   : I32EnumAttrCase<"AtEdge", 2, "edge">;
 
 def EventControlAttr : I32EnumAttr<"EventControl", "edge control trigger",
                                    [AtPosEdge, AtNegEdge, AtEdge]>  {}
+
+//===----------------------------------------------------------------------===//
+// OM Targets
+//===----------------------------------------------------------------------===//
+
+def DontTouch : I32EnumAttrCase<"DontTouch", 0, "dont_touch">;
+def Instance : I32EnumAttrCase<"Instance", 1, "instance">;
+def MemberInstance: I32EnumAttrCase<"MemberInstance", 2, "member_instance">;
+def MemberReference: I32EnumAttrCase<"MemberReference", 3, "member_reference">;
+def Reference: I32EnumAttrCase<"Reference", 4, "reference">;
+def TargetKind : I32EnumAttr<"TargetKind", "object model target kind",
+  [DontTouch, Instance, MemberInstance, MemberReference, Reference]>  {}
+
+}
 
 #endif // CIRCT_DIALECT_FIRRTL_FIRRTLENUMS_TD

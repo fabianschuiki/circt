@@ -3,6 +3,7 @@
 
 import circt
 from circt.dialects import hw
+from circt.support import attribute_to_var
 
 from circt.ir import (Context, Location, InsertionPoint, IntegerType,
                       IntegerAttr, Module, StringAttr, TypeAttr)
@@ -94,6 +95,19 @@ with Context() as ctx, Location.unknown():
   # CHECK: #hw.param.verbatim<"this is verbatim">
   print(pverbatim)
 
+  outfile = hw.OutputFileAttr.get_from_filename(StringAttr.get("file.txt"),
+                                                True, True)
+  print(outfile)
+  # CHECK: #hw.output_file<"file.txt", excludeFromFileList, includeReplicatedOps>
+
+  inner_sym = hw.InnerSymAttr.get(StringAttr.get("some_sym"))
+  # CHECK: #hw<innerSym@some_sym>
+  print(inner_sym)
+  # CHECK: "some_sym"
+  print(inner_sym.symName)
+  # CHECK: some_sym
+  print(attribute_to_var(inner_sym))
+
   inner_ref = hw.InnerRefAttr.get(StringAttr.get("some_module"),
                                   StringAttr.get("some_instance"))
   # CHECK: #hw.innerNameRef<@some_module::@some_instance>
@@ -103,6 +117,20 @@ with Context() as ctx, Location.unknown():
   # CHECK: "some_instance"
   print(inner_ref.name)
 
-  global_ref = hw.GlobalRefAttr.get(StringAttr.get("foo"))
-  # CHECK: #hw.globalNameRef<@foo>
-  print(global_ref)
+  ports = [
+      hw.ModulePort(StringAttr.get("out"), i1, hw.ModulePortDirection.OUTPUT),
+      hw.ModulePort(StringAttr.get("in1"), i2, hw.ModulePortDirection.INPUT),
+      hw.ModulePort(StringAttr.get("in2"), i32, hw.ModulePortDirection.INPUT),
+      hw.ModulePort(StringAttr.get("in3"), i32, hw.ModulePortDirection.INOUT)
+  ]
+  module_type = hw.ModuleType.get(ports)
+  # CHECK: !hw.modty<output out : i1, input in1 : i2, input in2 : i32, inout in3 : i32>
+  print(module_type)
+  # CHECK-NEXT:  [IntegerType(i2), IntegerType(i32), Type(!hw.inout<i32>)]
+  print(module_type.input_types)
+  # CHECK-NEXT:  [IntegerType(i1)]
+  print(module_type.output_types)
+  # CHECK-NEXT:  ['in1', 'in2', 'in3']
+  print(module_type.input_names)
+  # CHECK-NEXT:  ['out']
+  print(module_type.output_names)

@@ -18,7 +18,7 @@ include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/RegionKindInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
-include "mlir/IR/FunctionInterfaces.td"
+include "mlir/Interfaces/FunctionInterfaces.td"
 include "circt/Dialect/Calyx/CalyxInterfaces.td"
 
 def CalyxDialect : Dialect {
@@ -39,6 +39,9 @@ def CalyxDialect : Dialect {
   // Depends on the HWDialect to support external primitives using hw.module.extern
   let dependentDialects = ["circt::hw::HWDialect"];
   let cppNamespace = "::circt::calyx";
+
+  // Opt-out of properties for now, must migrate by LLVM 19.  #5273.
+  let usePropertiesForAttributes = 0;
 }
 
 class SameTypeConstraint<string lhs, string rhs>
@@ -66,8 +69,8 @@ class CalyxContainer<string mnemonic, list<Trait> traits = []> :
   ])> {
   let assemblyFormat = "$body attr-dict";
   let regions = (region SizedRegion<1>: $body);
-
-  let extraClassDeclaration = [{
+  
+  code commonClassDeclaration = [{
     /// Returns the body of a Calyx container.
     Block *getBodyBlock() {
       Region* region = &getOperation()->getRegion(0);
@@ -75,6 +78,7 @@ class CalyxContainer<string mnemonic, list<Trait> traits = []> :
       return &region->front();
     }
   }];
+  let extraClassDeclaration = commonClassDeclaration;
 }
 
 /// Base class for ports associated with a Calyx GroupOp.
