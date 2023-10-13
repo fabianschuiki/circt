@@ -26,7 +26,6 @@
 #include "llvm/Support/SourceMgr.h"
 
 using namespace mlir;
->>>>>>> slang-frontend/slang-frontend
 using namespace circt;
 using namespace ImportVerilog;
 
