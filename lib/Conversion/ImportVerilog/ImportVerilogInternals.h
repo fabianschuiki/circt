@@ -13,6 +13,7 @@
 #include "circt/Conversion/ImportVerilog.h"
 #include "circt/Dialect/Moore/MooreOps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Compilation.h"
 #include "slang/ast/Definition.h"
 #include "slang/syntax/SyntaxTree.h"
@@ -52,6 +53,22 @@ struct Context {
   LogicalResult convertCompilation(slang::ast::Compilation &compilation);
   Operation *convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
   LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
+
+  LogicalResult convertStatement(const slang::ast::Statement *statement);
+
+  LogicalResult
+  visitConditionalStmt(const slang::ast::ConditionalStatement *conditionalStmt);
+
+  Value visitExpression(const slang::ast::Expression *expression);
+
+  Value
+  visitIntegerLiteral(const slang::ast::IntegerLiteral *integerLiteralExpr);
+  Value visitNamedValue(const slang::ast::NamedValueExpression *namedValueExpr);
+  Value visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr);
+  Value
+  visitAssignmentExpr(const slang::ast::AssignmentExpression *assignmentExpr);
+  Value visitConversion(const slang::ast::ConversionExpression *conversionExpr,
+                        const slang::ast::Type &type);
 
   mlir::ModuleOp intoModuleOp;
   const slang::SourceManager &sourceManager;

@@ -32,6 +32,8 @@ add_circt_translation_library(CIRCTImportVerilog
   ImportVerilog.cpp
   Structure.cpp
   Types.cpp
+  Statement.cpp
+  Expression.cpp
 
   LINK_LIBS PUBLIC
   CIRCTMoore

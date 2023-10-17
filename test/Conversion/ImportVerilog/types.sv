@@ -100,7 +100,7 @@ module NetType;
   // CHECK-NEXT: %d1 = moore.variable : !moore.logic
   wire d0;
   tri d1;
-endmodule;
+endmodule
 
 // CHECK-LABEL: moore.module @PackedRangeDim
 module PackedRangeDim;

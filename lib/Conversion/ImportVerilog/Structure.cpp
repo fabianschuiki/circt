@@ -154,6 +154,46 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
 
+    // Handle AssignOp.
+    if (auto *assignAst = member.as_if<slang::ast::ContinuousAssignSymbol>()) {
+      rootBuilder.setInsertionPointToEnd(builder.getBlock());
+      visitAssignmentExpr(
+          &assignAst->getAssignment().as<slang::ast::AssignmentExpression>());
+      continue;
+    }
+
+    // Handle ProceduralBlock.
+    if (auto *procAst = member.as_if<slang::ast::ProceduralBlockSymbol>()) {
+      auto loc = convertLocation(procAst->location);
+      switch (procAst->procedureKind) {
+      case slang::ast::ProceduralBlockKind::AlwaysComb:
+        rootBuilder.setInsertionPointToEnd(
+            &builder.create<moore::AlwaysCombOp>(loc).getBodyBlock());
+        convertStatement(&procAst->getBody());
+        break;
+      case slang::ast::ProceduralBlockKind::Initial:
+        rootBuilder.setInsertionPointToEnd(
+            &builder.create<moore::InitialOp>(loc).getBodyBlock());
+        convertStatement(&procAst->getBody());
+        break;
+      case slang::ast::ProceduralBlockKind::AlwaysLatch:
+        return mlir::emitError(loc,
+                               "unsupported procedural block: always latch");
+      case slang::ast::ProceduralBlockKind::AlwaysFF:
+        return mlir::emitError(
+            loc, "unsupported procedural block: always flip-flop");
+      case slang::ast::ProceduralBlockKind::Always:
+        return mlir::emitError(loc, "unsupported procedural block: always");
+      case slang::ast::ProceduralBlockKind::Final:
+        return mlir::emitError(loc, "unsupported procedural block: final");
+      default:
+        mlir::emitError(loc, "unsupported procedural block");
+        return failure();
+      }
+
+      continue;
+    }
+
     // Otherwise just report that we don't support this SV construct yet and
     // skip over it. We'll want to make this an error, but in the early phases
     // we'll just want to cover ground as quickly as possible and skip over
