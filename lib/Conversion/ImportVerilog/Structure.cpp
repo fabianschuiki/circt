@@ -165,32 +165,12 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     // Handle ProceduralBlock.
     if (auto *procAst = member.as_if<slang::ast::ProceduralBlockSymbol>()) {
       auto loc = convertLocation(procAst->location);
-      switch (procAst->procedureKind) {
-      case slang::ast::ProceduralBlockKind::AlwaysComb:
-        rootBuilder.setInsertionPointToEnd(
-            &builder.create<moore::AlwaysCombOp>(loc).getBodyBlock());
-        convertStatement(&procAst->getBody());
-        break;
-      case slang::ast::ProceduralBlockKind::Initial:
-        rootBuilder.setInsertionPointToEnd(
-            &builder.create<moore::InitialOp>(loc).getBodyBlock());
-        convertStatement(&procAst->getBody());
-        break;
-      case slang::ast::ProceduralBlockKind::AlwaysLatch:
-        return mlir::emitError(loc,
-                               "unsupported procedural block: always latch");
-      case slang::ast::ProceduralBlockKind::AlwaysFF:
-        return mlir::emitError(
-            loc, "unsupported procedural block: always flip-flop");
-      case slang::ast::ProceduralBlockKind::Always:
-        return mlir::emitError(loc, "unsupported procedural block: always");
-      case slang::ast::ProceduralBlockKind::Final:
-        return mlir::emitError(loc, "unsupported procedural block: final");
-      default:
-        mlir::emitError(loc, "unsupported procedural block");
-        return failure();
-      }
-
+      rootBuilder.setInsertionPointToEnd(
+          &builder
+               .create<moore::ProcedureOp>(
+                   loc, static_cast<moore::Procedure>(procAst->procedureKind))
+               .getBodyBlock());
+      convertStatement(&procAst->getBody());
       continue;
     }
 

@@ -55,65 +55,43 @@ def VariableOp : MooreOp<"variable", [
   }];
 }
 
-def AlwaysCombOp : MooreOp<"alwayscomb", [
-  SingleBlock,
-  NoTerminator,
-  NoRegionArguments,
-  RecursiveMemoryEffects,
-  RecursivelySpeculatable
-]> {
-  let summary = "'alwayscomb block";
-  let description = "See SV Spec 9.2, and 9.2.2.2.";
+def Initial: I32EnumAttrCase<"Initial", 0, "initial">;
+def Final: I32EnumAttrCase<"Final", 1, "final">;
+def Always: I32EnumAttrCase<"Always", 2, "always">;
+def AlwaysComb: I32EnumAttrCase<"AlwaysComb", 3, "alwaysComb">;
+def AlwaysLatch: I32EnumAttrCase<"AlwaysLatch", 4, "alwaysLatch">;
+def AlwaysFF: I32EnumAttrCase<"AlwaysFF", 5, "alwaysFF">;
 
-  let regions = (region SizedRegion<1>:$body);
-  let arguments = (ins);
-  let results = (outs);
-
-  let assemblyFormat = [{
-    $body attr-dict
-  }];
-
-  let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<(ins CArg<"std::function<void()>", "{}">:$bodyCtor)>
-  ];
-
-  let extraClassDeclaration = [{
-    static mlir::RegionKind getRegionKind(unsigned index) {
-      return mlir::RegionKind::SSACFG;
-    }
-
-    mlir::Block &getBodyBlock() { return getBody().front(); }
-  }];
+def ProcedureAttr: I32EnumAttr<"Procedure", "Procedure kind",
+            [Initial, Final, Always, AlwaysComb, AlwaysLatch, AlwaysFF]>{
+  let cppNamespace = "circt::moore";
 }
 
-def InitialOp : MooreOp<"initial", [
+def ProcedureOp : MooreOp<"procedure", [
   SingleBlock,
   NoTerminator,
   NoRegionArguments,
   RecursiveMemoryEffects,
   RecursivelySpeculatable
 ]> {
-  let summary = "'initial block";
-  let description = "See SV Spec 9.2.1.";
+  let summary = "'Structured procedures";
+  let description = "See SV Spec 9.2.";
 
-  let regions = (region SizedRegion<1>:$body);
-  let arguments = (ins);
+  let regions = (region SizedRegion<1>:$body);  
+  let arguments = (ins ProcedureAttr:$procedure);
   let results = (outs);
 
   let assemblyFormat = [{
-    $body attr-dict
+    `(`$procedure`)` $body attr-dict
   }];
 
   let skipDefaultBuilders = 1;
   let builders = [
-    OpBuilder<(ins CArg<"std::function<void()>", "{}">:$bodyCtor)>
+    OpBuilder<(ins "Procedure":$procedure,
+                   CArg<"std::function<void()>", "{}">:$bodyCtor)>
   ];
 
   let extraClassDeclaration = [{
-    static mlir::RegionKind getRegionKind(unsigned index) {
-      return mlir::RegionKind::SSACFG;
-    }
 
     mlir::Block &getBodyBlock() { return getBody().front(); }
   }];

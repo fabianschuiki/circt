@@ -21,22 +21,12 @@ using namespace ImportVerilog;
 
 LogicalResult Context::visitConditionalStmt(
     const slang::ast::ConditionalStatement *conditionalStmt) {
-  auto loc = convertLocation(conditionalStmt->sourceRange.start());
-  Value cond = visitExpression(conditionalStmt->conditions.begin()->expr);
-  if (!cond)
-    return failure();
-
-  auto ifOp = rootBuilder.create<moore::IfOp>(
-      loc, cond, [&]() { convertStatement(&conditionalStmt->ifTrue); },
-      [&]() {});
-  if (ifOp.hasElse()) {
-    rootBuilder.setInsertionPointToEnd(ifOp.getElseBlock());
-    if (conditionalStmt->ifFalse)
-      convertStatement(conditionalStmt->ifFalse);
-    else
-      ifOp.getElseBlock()->erase();
-  }
-  return success();
+  // TODO: There is no Op that can produce the type of I1, but ins of the
+  // arguments in scf.if needs I1. Therefore, don't handle it and expect to
+  // emit an error. After defining an Op like compareOp, which can be used to
+  // deal with the condition of if operation, I will implement it.
+  return mlir::emitError(convertLocation(conditionalStmt->sourceRange.start()),
+                         "unsupported statement: conditional");
 }
 
 // It can handle the statements like case, conditional(if), for loop, and etc.

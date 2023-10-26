@@ -45,48 +45,15 @@ void VariableOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 }
 
 //===----------------------------------------------------------------------===//
-// IfOp
+// ProcedureOp
 //===----------------------------------------------------------------------===//
-void IfOp::build(OpBuilder &builder, OperationState &result, Value cond,
-                 std::function<void()> thenCtor,
-                 std::function<void()> elseCtor) {
+
+void ProcedureOp::build(OpBuilder &builder, OperationState &result,
+                        Procedure procedure, std::function<void()> bodyCtor) {
   OpBuilder::InsertionGuard guard(builder);
 
-  result.addOperands(cond);
-  builder.createBlock(result.addRegion());
-
-  if (thenCtor)
-    thenCtor();
-
-  Region *elseRegion = result.addRegion();
-  if (elseCtor) {
-    builder.createBlock(elseRegion);
-    elseCtor();
-  }
-}
-
-//===----------------------------------------------------------------------===//
-// AlwaysCombOp
-//===----------------------------------------------------------------------===//
-
-void AlwaysCombOp::build(OpBuilder &builder, OperationState &result,
-                         std::function<void()> bodyCtor) {
-  OpBuilder::InsertionGuard guard(builder);
-
-  builder.createBlock(result.addRegion());
-
-  if (bodyCtor)
-    bodyCtor();
-}
-
-//===----------------------------------------------------------------------===//
-// InitialOp
-//===----------------------------------------------------------------------===//
-
-void InitialOp::build(OpBuilder &builder, OperationState &result,
-                      std::function<void()> bodyCtor) {
-  OpBuilder::InsertionGuard guard(builder);
-
+  result.addAttribute(
+      "procedure", builder.getI32IntegerAttr(static_cast<int32_t>(procedure)));
   builder.createBlock(result.addRegion());
 
   if (bodyCtor)
