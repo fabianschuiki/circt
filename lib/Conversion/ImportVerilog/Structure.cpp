@@ -158,7 +158,8 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     if (auto *assignAst = member.as_if<slang::ast::ContinuousAssignSymbol>()) {
       rootBuilder.setInsertionPointToEnd(builder.getBlock());
       visitAssignmentExpr(
-          &assignAst->getAssignment().as<slang::ast::AssignmentExpression>());
+          &assignAst->getAssignment().as<slang::ast::AssignmentExpression>(),
+          *assignAst->getAssignment().type);
       continue;
     }
 

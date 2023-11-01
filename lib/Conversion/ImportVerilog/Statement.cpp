@@ -43,7 +43,9 @@ Context::convertStatement(const slang::ast::Statement *statement) {
     convertStatement(&statement->as<slang::ast::BlockStatement>().body);
     break;
   case slang::ast::StatementKind::ExpressionStatement:
-    visitExpression(&statement->as<slang::ast::ExpressionStatement>().expr);
+    visitExpression(
+        &statement->as<slang::ast::ExpressionStatement>().expr,
+        *statement->as<slang::ast::ExpressionStatement>().expr.type);
     break;
   case slang::ast::StatementKind::VariableDeclaration:
     return mlir::emitError(loc, "unsupported statement: variable declaration");
