@@ -1,5 +1,11 @@
 // RUN: circt-translate --import-verilog %s | FileCheck %s
 
+// CHECK-LABEL: moore.module @Foo
+// CHECK-NEXT:    moore.port In "a"
+// CHECK-NEXT:    %a = moore.variable : !moore.logic
+module Foo(input a);
+endmodule
+
 // CHECK-LABEL: moore.module @Top1
 module Top1;
     // CHECK-NEXT: moore.instance "child1" @Child

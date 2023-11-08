@@ -154,6 +154,18 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
 
+    // Handle Ports.
+    if (auto *portAst = member.as_if<slang::ast::PortSymbol>()) {
+      auto loweredType = convertType(portAst->getType());
+      if (!loweredType)
+        return failure();
+      builder.create<moore::PortOp>(
+          convertLocation(portAst->location),
+          builder.getStringAttr(portAst->name),
+          static_cast<moore::Direction>(portAst->direction));
+      continue;
+    }
+
     // Handle AssignOp.
     if (auto *assignAst = member.as_if<slang::ast::ContinuousAssignSymbol>()) {
       rootBuilder.setInsertionPointToEnd(builder.getBlock());

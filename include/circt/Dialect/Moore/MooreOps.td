@@ -96,3 +96,24 @@ def ProcedureOp : MooreOp<"procedure", [
     mlir::Block &getBodyBlock() { return getBody().front(); }
   }];
 }
+
+def In: I32EnumAttrCase<"In", 0>;
+def Out: I32EnumAttrCase<"Out", 1>;
+def InOut: I32EnumAttrCase<"InOut", 2>;
+def Ref: I32EnumAttrCase<"Ref", 3>;
+
+def DirectionAttr: I32EnumAttr<"Direction", "Port direction",
+                                  [In, Out, InOut, Ref]>{
+  let cppNamespace = "circt::moore";
+}
+
+def PortOp : MooreOp<"port", [
+  RecursiveMemoryEffects
+]> {
+  let summary = "Declare a port";
+  let arguments = (ins StrAttr:$name, DirectionAttr:$direction);
+  let results = (outs);
+  let assemblyFormat = [{
+    $direction $name attr-dict
+  }];
+}
