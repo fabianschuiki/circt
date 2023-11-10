@@ -75,6 +75,22 @@ struct Context {
   Value visitConversion(const slang::ast::ConversionExpression *conversionExpr,
                         const slang::ast::Type &type);
 
+  LogicalResult
+  visitTimingControl(const slang::ast::TimingControl *timingControl);
+
+  LogicalResult visitDelay(const slang::ast::DelayControl *delay);
+  LogicalResult visitDelay3(const slang::ast::Delay3Control *delay3);
+  LogicalResult
+  visitSignalEvent(const slang::ast::SignalEventControl *signalEventControl);
+  LogicalResult
+  visitImplicitEvent(const slang::ast::ImplicitEventControl *implEventControl);
+  LogicalResult visitRepeatedEvent(
+      const slang::ast::RepeatedEventControl *repeatedEventControl);
+  LogicalResult
+  visitOneStepDelay(const slang::ast::OneStepDelayControl *oneStepDelayControl);
+  LogicalResult
+  visitCycleDelay(const slang::ast::CycleDelayControl *cycleDelayControl);
+
   mlir::ModuleOp intoModuleOp;
   const slang::SourceManager &sourceManager;
   std::function<StringRef(slang::BufferID)> getBufferFilePath;

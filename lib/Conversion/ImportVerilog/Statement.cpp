@@ -72,6 +72,9 @@ Context::convertStatement(const slang::ast::Statement *statement) {
   case slang::ast::StatementKind::ForeverLoop:
     return mlir::emitError(loc, "unsupported statement: forever loop");
   case slang::ast::StatementKind::Timed:
+    visitTimingControl(&statement->as<slang::ast::TimedStatement>().timing);
+    convertStatement(&statement->as<slang::ast::TimedStatement>().stmt);
+    break;
     return mlir::emitError(loc, "unsupported statement: timed");
   case slang::ast::StatementKind::ImmediateAssertion:
     return mlir::emitError(loc, "unsupported statement: immediate assertion");

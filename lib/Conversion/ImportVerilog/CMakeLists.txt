@@ -34,6 +34,7 @@ add_circt_translation_library(CIRCTImportVerilog
   Types.cpp
   Statement.cpp
   Expression.cpp
+  TimingControl.cpp
 
   LINK_LIBS PUBLIC
   CIRCTMoore
