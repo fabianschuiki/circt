@@ -117,3 +117,25 @@ def PortOp : MooreOp<"port", [
     $direction $name attr-dict
   }];
 }
+
+def None: I32EnumAttrCase<"None", 0, "none">;
+def PosEdge: I32EnumAttrCase<"PosEdge", 1, "posedge">;
+def NegEdge: I32EnumAttrCase<"NegEdge", 2, "negedge">;
+def BothEdges: I32EnumAttrCase<"BothEdges", 3, "bothedges">;
+
+def EdgeAtrr: I32EnumAttr<"Edge", "Edge kind", 
+                          [None, PosEdge, NegEdge, BothEdges]>{
+  let cppNamespace = "circt::moore";
+}
+
+def EventControlOp : MooreOp<"event", [
+  HasParent<"ProcedureOp">
+]>{
+  let summary = "Detecting posedge and negedge";
+  let description = "See SV Spec 9.4.2.";
+  let arguments = (ins EdgeAtrr:$edge, StrAttr:$name);
+  let results = (outs);
+  let assemblyFormat = [{
+    $edge $name attr-dict
+  }];
+}

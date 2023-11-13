@@ -18,8 +18,10 @@ using namespace ImportVerilog;
 LogicalResult Context::visitSignalEvent(
     const slang::ast::SignalEventControl *signalEventControl) {
   auto loc = convertLocation(signalEventControl->sourceRange.start());
-  return mlir::emitError(loc,
-                         "unsupported timing comtrol: signal event control");
+  auto name = signalEventControl->expr.getSymbolReference()->name;
+  rootBuilder.create<moore::EventControlOp>(
+      loc, static_cast<moore::Edge>(signalEventControl->edge), name);
+  return success();
 }
 
 LogicalResult Context::visitImplicitEvent(
