@@ -53,7 +53,20 @@ Value Context::visitAssignmentExpr(
     mlir::emitError(loc, "unsupported assignment of kind like a = b");
     return nullptr;
   }
+
+  /// It is used to choose which assignOp will be used. I think we should
+  /// quickly determine the type of assignOp so that implement it. Maybe
+  /// 'AnyType' is a decent choice at this stage, though it is unsafe.
+
+  // if (assignmentExpr->isNonBlocking())
+  //   rootBuilder.create<moore::PAssignOp>(loc, lhs, rhs);
+  // else {
+  //   if (assignmentExpr->syntax->parent->kind ==
+  //       slang::syntax::SyntaxKind::ContinuousAssign)
   rootBuilder.create<moore::AssignOp>(loc, lhs, rhs);
+  //   else
+  //     rootBuilder.create<moore::BPAssignOp>(loc, lhs, rhs);
+  // }
   return nullptr;
 }
 
