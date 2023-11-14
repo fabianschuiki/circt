@@ -93,3 +93,49 @@ def ShrOp : ShiftOp<"shr"> {
     MSB (sign bit) if the result type is signed.
   }];
 }
+
+//===---------------------------------------------------------------------===//
+// Equality operations
+//===---------------------------------------------------------------------===//
+
+class EqualOp<string name> : MIROp<name, [
+  Pure,
+  Commutative,
+  TypesMatchWith<"lhs and result types must match",
+                   "lhs", "result", "$_self">
+]>{
+  let arguments = (ins SimpleBitVectorType:$lhs, 
+                       SimpleBitVectorType:$rhs, 
+                       UnitAttr:$mode);
+  let results = (outs SimpleBitVectorType:$result);
+  let assemblyFormat = [{
+    ( `case` $mode^ )? $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+  }];
+} 
+
+def EqualityOp : EqualOp<"eq">{
+  let summary = "A logical or case equality expression";
+  let description = [{
+    This operation represents the SystemVerilog logical and case
+    equality expressions `==` and `===`.
+    See IEEE1800-2017 11.4.5 "Equality operators".
+
+    a == b a equal to b, result can be unknown.
+    a === b a equal to b, including x and z.
+
+    The operators compare operands bit for bit. As with the relational 
+    operators, the result shall be 0 if comparison fails and 1 if it succeeds.
+  }];
+}
+
+def InEqualityOp : EqualOp<"ie">{
+  let summary = "A logical or case inequality expression";
+  let description = [{
+    This operation represents the SystemVerilog logical and case
+    inequality expressions `!=` and `!==`.
+    See IEEE1800-2017 11.4.5 "Equality operators".
+
+    a != b a not equal to b, result can be unknown.
+    a !== b a not equal to b, including x and z.
+  }];
+}
