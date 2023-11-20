@@ -21,12 +21,34 @@ using namespace ImportVerilog;
 
 LogicalResult Context::visitConditionalStmt(
     const slang::ast::ConditionalStatement *conditionalStmt) {
-  // TODO: There is no Op that can produce the type of I1, but ins of the
-  // arguments in scf.if needs I1. Therefore, don't handle it and expect to
-  // emit an error. After defining an Op like compareOp, which can be used to
-  // deal with the condition of if operation, I will implement it.
-  return mlir::emitError(convertLocation(conditionalStmt->sourceRange.start()),
-                         "unsupported statement: conditional");
+  auto loc = conditionalStmt->sourceRange.start();
+  auto type = conditionalStmt->conditions.begin()->expr->type;
+
+  Value cond;
+  cond = visitExpression(conditionalStmt->conditions.begin()->expr, *type);
+  if (!cond)
+    return failure();
+
+  // The numeric value of the if expression is tested for being zero.
+  // And if (expression) is equivalent to if (expression != 0).
+  // So the following code is for handling `if (expression)`.
+  if (!cond.getType().isa<mlir::IntegerType>()) {
+    auto zeroValue =
+        rootBuilder.create<moore::ConstantOp>(loc, convertType(*type), 0);
+    cond = rootBuilder.create<moore::InEqualityOp>(loc, cond, zeroValue);
+  }
+
+  auto ifOp = rootBuilder.create<moore::IfOp>(
+      loc, cond, [&]() { convertStatement(&conditionalStmt->ifTrue); },
+      [&]() {});
+  if (ifOp.hasElse()) {
+    rootBuilder.setInsertionPointToEnd(ifOp.getElseBlock());
+    if (conditionalStmt->ifFalse)
+      convertStatement(conditionalStmt->ifFalse);
+    else
+      ifOp.getElseBlock()->erase();
+  }
+  return success();
 }
 
 // It can handle the statements like case, conditional(if), for loop, and etc.

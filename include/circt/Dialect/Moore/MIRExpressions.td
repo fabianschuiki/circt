@@ -100,14 +100,12 @@ def ShrOp : ShiftOp<"shr"> {
 
 class EqualOp<string name> : MIROp<name, [
   Pure,
-  Commutative,
-  TypesMatchWith<"lhs and result types must match",
-                   "lhs", "result", "$_self">
+  Commutative
 ]>{
   let arguments = (ins SimpleBitVectorType:$lhs, 
                        SimpleBitVectorType:$rhs, 
                        UnitAttr:$mode);
-  let results = (outs SimpleBitVectorType:$result);
+  let results = (outs I1:$result);
   let assemblyFormat = [{
     ( `case` $mode^ )? $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];
@@ -128,7 +126,7 @@ def EqualityOp : EqualOp<"eq">{
   }];
 }
 
-def InEqualityOp : EqualOp<"ie">{
+def InEqualityOp : EqualOp<"ne">{
   let summary = "A logical or case inequality expression";
   let description = [{
     This operation represents the SystemVerilog logical and case
