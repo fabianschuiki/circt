@@ -87,17 +87,20 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr,
     return rootBuilder.create<moore::InEqualityOp>(loc, lhs, rhs,
                                                    rootBuilder.getUnitAttr());
   case slang::ast::BinaryOperator::GreaterThanEqual:
-    mlir::emitError(loc, "unsupported binary operator : greater than equal");
-    return nullptr;
+    // TODO: I think should integrate these four relation operators into one
+    // rootBuilder.create. But I failed, the error is `resultNumber <
+    // getNumResults() && ... ` from Operation.h:983.
+    return rootBuilder.create<moore::RelationalOp>(
+        loc, moore::Relation::GreaterThanEqual, lhs, rhs);
   case slang::ast::BinaryOperator::GreaterThan:
-    mlir::emitError(loc, "unsupported binary operator : greater than");
-    return nullptr;
+    return rootBuilder.create<moore::RelationalOp>(
+        loc, moore::Relation::GreaterThan, lhs, rhs);
   case slang::ast::BinaryOperator::LessThanEqual:
-    mlir::emitError(loc, "unsupported binary operator : less than equal");
-    return nullptr;
+    return rootBuilder.create<moore::RelationalOp>(
+        loc, moore::Relation::LessThanEqual, lhs, rhs);
   case slang::ast::BinaryOperator::LessThan:
-    mlir::emitError(loc, "unsupported binary operator : less than");
-    return nullptr;
+    return rootBuilder.create<moore::RelationalOp>(
+        loc, moore::Relation::LessThan, lhs, rhs);
   case slang::ast::BinaryOperator::WildcardEquality:
     mlir::emitError(loc, "unsupported binary operator : wildcard equality");
     return nullptr;
