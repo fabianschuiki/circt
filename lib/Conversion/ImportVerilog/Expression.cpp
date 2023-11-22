@@ -117,18 +117,15 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr,
     mlir::emitError(loc, "unsupported binary operator : logical equivalence");
     return nullptr;
   case slang::ast::BinaryOperator::LogicalShiftLeft:
-    mlir::emitError(loc, "unsupported binary operator : logical shift left");
-    return nullptr;
+    return rootBuilder.create<moore::ShlOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::LogicalShiftRight:
-    mlir::emitError(loc, "unsupported binary operator : logical shift right");
-    return nullptr;
+    return rootBuilder.create<moore::ShrOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::ArithmeticShiftLeft:
-    mlir::emitError(loc, "unsupported binary operator : arithmetic shift left");
-    return nullptr;
+    return rootBuilder.create<moore::ShlOp>(loc, lhs, rhs,
+                                            rootBuilder.getUnitAttr());
   case slang::ast::BinaryOperator::ArithmeticShiftRight:
-    mlir::emitError(loc,
-                    "unsupported binary operator : arithmetic shift right");
-    return nullptr;
+    return rootBuilder.create<moore::ShrOp>(loc, lhs, rhs,
+                                            rootBuilder.getUnitAttr());
   case slang::ast::BinaryOperator::Power:
     mlir::emitError(loc, "unsupported binary operator : power");
     return nullptr;
