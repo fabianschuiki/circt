@@ -38,16 +38,20 @@ LogicalResult Context::visitConditionalStmt(
     cond = rootBuilder.create<moore::InEqualityOp>(loc, cond, zeroValue);
   }
 
-  auto ifOp = rootBuilder.create<moore::IfOp>(
-      loc, cond, [&]() { convertStatement(&conditionalStmt->ifTrue); },
-      [&]() {});
-  if (ifOp.hasElse()) {
-    rootBuilder.setInsertionPointToEnd(ifOp.getElseBlock());
-    if (conditionalStmt->ifFalse)
-      convertStatement(conditionalStmt->ifFalse);
-    else
-      ifOp.getElseBlock()->erase();
-  }
+  auto ifOp = rootBuilder.create<mlir::scf::IfOp>(
+      loc, cond,
+      [&](OpBuilder &builder, Location loc) {
+        convertStatement(&conditionalStmt->ifTrue);
+        builder.create<mlir::scf::YieldOp>(loc);
+      },
+      [&](OpBuilder &builder, Location loc) {
+        if (&conditionalStmt->ifFalse && conditionalStmt->ifFalse) {
+          convertStatement(conditionalStmt->ifFalse);
+          builder.create<mlir::scf::YieldOp>(loc);
+        }
+      });
+  if (ifOp.getElseRegion().getOps().empty())
+    ifOp.elseBlock()->erase();
   return success();
 }
 

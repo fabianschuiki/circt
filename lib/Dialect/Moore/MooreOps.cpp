@@ -61,27 +61,6 @@ void ProcedureOp::build(OpBuilder &builder, OperationState &result,
 }
 
 //===----------------------------------------------------------------------===//
-// IfOp
-//===----------------------------------------------------------------------===//
-void IfOp::build(OpBuilder &builder, OperationState &result, Value cond,
-                 std::function<void()> thenCtor,
-                 std::function<void()> elseCtor) {
-  OpBuilder::InsertionGuard guard(builder);
-
-  result.addOperands(cond);
-  builder.createBlock(result.addRegion());
-
-  if (thenCtor)
-    thenCtor();
-
-  Region *elseRegion = result.addRegion();
-  if (elseCtor) {
-    builder.createBlock(elseRegion);
-    elseCtor();
-  }
-}
-
-//===----------------------------------------------------------------------===//
 // Type Inference
 //===----------------------------------------------------------------------===//
 
