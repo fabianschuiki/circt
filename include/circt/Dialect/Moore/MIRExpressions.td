@@ -139,7 +139,7 @@ def InEqualityOp : EqualOp<"ne">{
 }
 
 //===---------------------------------------------------------------------===//
-// relational operations
+// Relational operations
 //===---------------------------------------------------------------------===//
 
 def GreaterThanEqual : I32EnumAttrCase<"GreaterThanEqual", 0, "gte">;
@@ -152,7 +152,7 @@ def RelationalAttr : I32EnumAttr<"Relation", "relational predicate",
     let cppNamespace = "circt::moore";
 }
 
-def RelationalOp : MIROp<"cmp", [
+def RelationalOp : MIROp<"icmp", [
   Pure
 ]>{
   let summary = "Definitions of relational operators";
@@ -169,5 +169,40 @@ def RelationalOp : MIROp<"cmp", [
   
   let assemblyFormat = [{
     $relation $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+  }];
+}
+
+//===---------------------------------------------------------------------===//
+// Logical operations
+//===---------------------------------------------------------------------===//
+
+def LogicalAnd : I32EnumAttrCase<"LogicalAnd", 0, "and">;
+def LogicalOr : I32EnumAttrCase<"LogicalOr", 1, "or">;
+def LogicalImplication : I32EnumAttrCase<"LogicalImplication", 2, "impl">;
+def LogicalEquivalence : I32EnumAttrCase<"LogicalEquivalence", 3, "equiv">;
+
+def LogicalAttr : I32EnumAttr<"Logic", "logical predicate", 
+       [LogicalAnd, LogicalOr, LogicalImplication, LogicalEquivalence]>{
+    let cppNamespace = "circt::moore";
+}
+
+def LogicalOp : MIROp<"logic", [
+  Pure,
+  TypesMatchWith<"lhs and result types must match",
+                   "lhs", "result", "$_self">
+]>{
+  let summary = "Definitions of logical operators";
+  let description = [{
+    The result of the evaluation of a logical operation shall be `1`, `0`, 
+    or, if the result is ambiguous, the unkonw value `x`.
+    See IEEE Std 1800-2017 11.4.7.
+  }];
+  let arguments = (ins LogicalAttr:$logic,
+                       SimpleBitVectorType:$lhs,
+                       SimpleBitVectorType:$rhs);
+  let results = (outs SimpleBitVectorType:$result);
+
+  let assemblyFormat = [{
+    $logic $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];
 }

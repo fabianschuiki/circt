@@ -108,17 +108,17 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr,
     mlir::emitError(loc, "unsupported binary operator : wildcard inequality");
     return nullptr;
   case slang::ast::BinaryOperator::LogicalAnd:
-    mlir::emitError(loc, "unsupported binary operator : logical and");
-    return nullptr;
+    return rootBuilder.create<moore::LogicalOp>(loc, moore::Logic::LogicalAnd,
+                                                lhs, rhs);
   case slang::ast::BinaryOperator::LogicalOr:
-    mlir::emitError(loc, "unsupported binary operator : logical or");
-    return nullptr;
+    return rootBuilder.create<moore::LogicalOp>(loc, moore::Logic::LogicalOr,
+                                                lhs, rhs);
   case slang::ast::BinaryOperator::LogicalImplication:
-    mlir::emitError(loc, "unsupported binary operator : logical implication");
-    return nullptr;
+    return rootBuilder.create<moore::LogicalOp>(
+        loc, moore::Logic::LogicalImplication, lhs, rhs);
   case slang::ast::BinaryOperator::LogicalEquivalence:
-    mlir::emitError(loc, "unsupported binary operator : logical equivalence");
-    return nullptr;
+    return rootBuilder.create<moore::LogicalOp>(
+        loc, moore::Logic::LogicalEquivalence, lhs, rhs);
   case slang::ast::BinaryOperator::LogicalShiftLeft:
     return rootBuilder.create<moore::ShlOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::LogicalShiftRight:
