@@ -55,11 +55,13 @@ struct Context {
   Operation *convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
   LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
 
+  // Convert a slang statement into an MLIR statement.
   LogicalResult convertStatement(const slang::ast::Statement *statement);
 
   LogicalResult
   visitConditionalStmt(const slang::ast::ConditionalStatement *conditionalStmt);
 
+  // Convert a slang expression into an MLIR expression.
   Value visitExpression(const slang::ast::Expression *expression,
                         const slang::ast::Type &type);
 
@@ -68,6 +70,8 @@ struct Context {
                       const slang::ast::Type &type);
   Value visitNamedValue(const slang::ast::NamedValueExpression *namedValueExpr,
                         const slang::ast::Type &type);
+  Value visitUnaryOp(const slang::ast::UnaryExpression *unaryExpr,
+                     const slang::ast::Type &type);
   Value visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr,
                       const slang::ast::Type &type);
   Value
@@ -76,6 +80,7 @@ struct Context {
   Value visitConversion(const slang::ast::ConversionExpression *conversionExpr,
                         const slang::ast::Type &type);
 
+  // Convert a slang timing control into an MLIR timing control.
   LogicalResult
   visitTimingControl(const slang::ast::TimingControl *timingControl);
 

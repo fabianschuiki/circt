@@ -37,6 +37,52 @@ Value Context::visitNamedValue(
   return nullptr;
 }
 
+// Detail processing about unary expression.
+Value Context::visitUnaryOp(const slang::ast::UnaryExpression *unaryExpr,
+                            const slang::ast::Type &type) {
+  auto loc = convertLocation(unaryExpr->sourceRange.start());
+  auto value = visitExpression(&unaryExpr->operand(), type);
+
+  switch (unaryExpr->op) {
+  case slang::ast::UnaryOperator::Plus:
+    return rootBuilder.create<moore::UnaryOp>(loc, moore::Unary::Plus, value);
+  case slang::ast::UnaryOperator::Minus:
+    return rootBuilder.create<moore::UnaryOp>(loc, moore::Unary::Minus, value);
+  case slang::ast::UnaryOperator::BitwiseNot:
+    return rootBuilder.create<moore::ReductionOp>(
+        loc, moore::Reduction::BitwiseNot, value);
+  case slang::ast::UnaryOperator::BitwiseAnd:
+    return rootBuilder.create<moore::ReductionOp>(
+        loc, moore::Reduction::BitwiseAnd, value);
+  case slang::ast::UnaryOperator::BitwiseOr:
+    return rootBuilder.create<moore::ReductionOp>(
+        loc, moore::Reduction::BitwiseOr, value);
+  case slang::ast::UnaryOperator::BitwiseXor:
+    return rootBuilder.create<moore::ReductionOp>(
+        loc, moore::Reduction::BitwiseXor, value);
+  case slang::ast::UnaryOperator::BitwiseNand:
+    return rootBuilder.create<moore::ReductionOp>(
+        loc, moore::Reduction::BitwiseNand, value);
+  case slang::ast::UnaryOperator::BitwiseNor:
+    return rootBuilder.create<moore::ReductionOp>(
+        loc, moore::Reduction::BitwiseNor, value);
+  case slang::ast::UnaryOperator::BitwiseXnor:
+    return rootBuilder.create<moore::ReductionOp>(
+        loc, moore::Reduction::BitwiseXnor, value);
+  case slang::ast::UnaryOperator::LogicalNot:
+    return rootBuilder.create<moore::UnaryOp>(loc, moore::Unary::LogicalNot,
+                                              value);
+  case slang::ast::UnaryOperator::Preincrement:
+  case slang::ast::UnaryOperator::Predecrement:
+  case slang::ast::UnaryOperator::Postincrement:
+  case slang::ast::UnaryOperator::Postdecrement:
+  default:
+    mlir::emitError(loc, "unsupported unary operator");
+    return nullptr;
+  }
+  return nullptr;
+}
+
 // Detail processing about binary expression.
 Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr,
                              const slang::ast::Type &type) {
@@ -185,6 +231,9 @@ Value Context::visitConversion(
     return visitNamedValue(
         &conversionExpr->operand().as<slang::ast::NamedValueExpression>(),
         type);
+  case slang::ast::ExpressionKind::UnaryOp:
+    return visitUnaryOp(
+        &conversionExpr->operand().as<slang::ast::UnaryExpression>(), type);
   case slang::ast::ExpressionKind::BinaryOp:
     return visitBinaryOp(
         &conversionExpr->operand().as<slang::ast::BinaryExpression>(), type);
@@ -220,6 +269,8 @@ Value Context::visitExpression(const slang::ast::Expression *expression,
   case slang::ast::ExpressionKind::NamedValue:
     return visitNamedValue(&expression->as<slang::ast::NamedValueExpression>(),
                            type);
+  case slang::ast::ExpressionKind::UnaryOp:
+    return visitUnaryOp(&expression->as<slang::ast::UnaryExpression>(), type);
   case slang::ast::ExpressionKind::BinaryOp:
     return visitBinaryOp(&expression->as<slang::ast::BinaryExpression>(), type);
   case slang::ast::ExpressionKind::Assignment:

@@ -24,8 +24,8 @@ LogicalResult Context::visitConditionalStmt(
   auto loc = conditionalStmt->sourceRange.start();
   auto type = conditionalStmt->conditions.begin()->expr->type;
 
-  Value cond;
-  cond = visitExpression(conditionalStmt->conditions.begin()->expr, *type);
+  Value cond =
+      visitExpression(conditionalStmt->conditions.begin()->expr, *type);
   if (!cond)
     return failure();
 
