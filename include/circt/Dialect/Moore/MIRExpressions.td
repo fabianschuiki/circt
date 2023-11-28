@@ -45,6 +45,74 @@ def ConcatOp : MIROp<"concat", [
 }
 
 //===----------------------------------------------------------------------===//
+// Unary operations
+//===----------------------------------------------------------------------===//
+
+def Plus : I32EnumAttrCase<"Plus", 0, "plus">;
+def Minus : I32EnumAttrCase<"Minus", 1, "minus">;
+def LogicalNot : I32EnumAttrCase<"LogicalNot", 2, "not">;
+
+def UnaryAttr : I32EnumAttr<"Unary", "Three common unary operators",
+                            [Plus, Minus, LogicalNot]>{
+  let cppNamespace = "circt::moore";
+}
+
+def UnaryOp : MIROp<"unary",[
+  Pure,
+  TypesMatchWith<"value and result types must match",
+                   "value", "result", "$_self">
+]> {
+  let summary = "Definitions of the unary operations";
+  let description = [{
+    See IEEE Std 1800-2017 11.4.2 and 11.4.7.
+  }];
+
+  let arguments = (ins UnaryAttr:$unary,
+                       SimpleBitVectorType:$value);
+  let results = (outs SimpleBitVectorType:$result);
+  let assemblyFormat = [{
+    $unary $value attr-dict `:` type($value)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Reduction operations
+//===----------------------------------------------------------------------===//
+
+def BitwiseNot : I32EnumAttrCase<"BitwiseNot", 0, "not">;
+def BitwiseAnd : I32EnumAttrCase<"BitwiseAnd", 1, "and">;
+def BitwiseOr : I32EnumAttrCase<"BitwiseOr", 2, "or">;
+def BitwiseXor : I32EnumAttrCase<"BitwiseXor", 3, "xor">;
+def BitwiseNand : I32EnumAttrCase<"BitwiseNand", 4, "nand">;
+def BitwiseNor : I32EnumAttrCase<"BitwiseNor", 5, "nor">;
+def BitwiseXnor : I32EnumAttrCase<"BitwiseXnor", 6, "xnor">;
+
+
+def ReductionAttr : I32EnumAttr<"Reduction", "reduction predicate",
+                      [BitwiseNot, BitwiseAnd, BitwiseOr, BitwiseXor,
+                       BitwiseNand, BitwiseNor, BitwiseXnor]>{
+  let cppNamespace = "circt::moore";
+}
+
+def ReductionOp : MIROp<"reduction",[
+  Pure,
+  TypesMatchWith<"value and result types must match",
+                   "value", "result", "$_self">
+]> {
+  let summary = "Definitions of the reduction operations";
+  let description = [{
+    See IEEE Std 1800-2017 11.4.9.
+  }];
+
+  let arguments = (ins ReductionAttr:$reduction,
+                       SimpleBitVectorType:$value);
+  let results = (outs SimpleBitVectorType:$result);
+  let assemblyFormat = [{
+    $reduction $value attr-dict `:` type($value)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Shift operations
 //===----------------------------------------------------------------------===//
 
