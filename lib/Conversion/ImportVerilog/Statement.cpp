@@ -21,7 +21,7 @@ using namespace ImportVerilog;
 
 LogicalResult Context::visitConditionalStmt(
     const slang::ast::ConditionalStatement *conditionalStmt) {
-  auto loc = conditionalStmt->sourceRange.start();
+  auto loc = convertLocation(conditionalStmt->sourceRange.start());
   auto type = conditionalStmt->conditions.begin()->expr->type;
 
   Value cond =
