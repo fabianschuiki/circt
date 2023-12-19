@@ -30,18 +30,12 @@ using mlir::TypeStorageAllocator;
 // Generated logic
 //===----------------------------------------------------------------------===//
 
-#define GET_TYPEDEF_CLASSES
-#include "circt/Dialect/Moore/MooreTypes.cpp.inc"
-
 void MooreDialect::registerTypes() {
   addTypes<VoidType, StringType, ChandleType, EventType, IntType, RealType,
            PackedNamedType, PackedRefType, UnpackedNamedType, UnpackedRefType,
            PackedUnsizedDim, PackedRangeDim, UnpackedUnsizedDim,
            UnpackedArrayDim, UnpackedRangeDim, UnpackedAssocDim,
-           UnpackedQueueDim, EnumType, PackedStructType, UnpackedStructType,
-#define GET_TYPEDEF_LIST
-#include "circt/Dialect/Moore/MooreTypes.cpp.inc"
-           >();
+           UnpackedQueueDim, EnumType, PackedStructType, UnpackedStructType>();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1562,11 +1556,10 @@ static ParseResult parseMooreType(DialectAsmParser &parser, Subset subset,
                                   Type &type) {
   llvm::SMLoc loc = parser.getCurrentLocation();
   StringRef mnemonic;
-  OptionalParseResult result = generatedTypeParser(parser, &mnemonic, type);
-  if (result.has_value())
-    return result.value();
-
-  result = customTypeParser(parser, mnemonic, subset, loc, type);
+  if (parser.parseKeyword(&mnemonic))
+    return failure();
+  OptionalParseResult result =
+      customTypeParser(parser, mnemonic, subset, loc, type);
   if (result.has_value())
     return result.value();
 
@@ -1578,8 +1571,6 @@ static ParseResult parseMooreType(DialectAsmParser &parser, Subset subset,
 /// Print a type registered with this dialect.
 static void printMooreType(Type type, DialectAsmPrinter &printer,
                            Subset subset) {
-  if (succeeded(generatedTypePrinter(type, printer)))
-    return;
   if (succeeded(customTypePrinter(type, printer, subset)))
     return;
   assert(false && "no printer for unknown `moore` dialect type");

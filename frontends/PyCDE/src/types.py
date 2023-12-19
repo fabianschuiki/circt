@@ -3,14 +3,19 @@
 #  SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from collections import OrderedDict
+from functools import singledispatchmethod
+from typing import Any
+
+from numpy import single
 
 from .support import get_user_loc
 
 from .circt import ir, support
 from .circt.dialects import esi, hw, seq, sv
-from .circt.dialects.esi import ChannelSignaling
+from .circt.dialects.esi import ChannelSignaling, ChannelDirection
 
 import typing
+from dataclasses import dataclass
 
 
 class _Types:
@@ -153,6 +158,8 @@ def _FromCirctType(type: typing.Union[ir.Type, Type]) -> Type:
     return Type.__new__(Any, type)
   if isinstance(type, esi.ChannelType):
     return Type.__new__(Channel, type)
+  if isinstance(type, esi.BundleType):
+    return Type.__new__(Bundle, type)
   if isinstance(type, esi.ListType):
     return Type.__new__(List, type)
   return Type(type)
@@ -232,7 +239,8 @@ class TypeAlias(Type):
       for (name, type) in TypeAlias.RegisteredAliases.items():
         declared_aliases = [
             op for op in type_scope.body.operations
-            if isinstance(op, hw.TypedeclOp) and op.sym_name.value == name
+            if isinstance(op, hw.TypedeclOp) and
+            ir.StringAttr(op.sym_name).value == name
         ]
         if len(declared_aliases) != 0:
           continue
@@ -559,6 +567,118 @@ class Channel(Type):
       return wrap_op[0], wrap_op[1]
     else:
       raise TypeError("Unknown signaling standard")
+
+
+@dataclass
+class BundledChannel:
+  """A named, directed channel for inclusion in a bundle."""
+  name: str
+  direction: ChannelDirection
+  channel: Type
+
+  def __repr__(self) -> str:
+    return f"('{self.name}', {str(self.direction)}, {self.channel})"
+
+
+class Bundle(Type):
+  """A group of named, directed channels. Typically used in a service."""
+
+  def __new__(cls, channels: typing.List[BundledChannel]):
+
+    def wrap_in_channel(ty: Type):
+      if isinstance(ty, Channel):
+        return ty
+      return Channel(ty)
+
+    type = esi.BundleType.get(
+        [(bc.name, bc.direction, wrap_in_channel(bc.channel)._type)
+         for bc in channels], False)
+    return super(Bundle, cls).__new__(cls, type)
+
+  def _get_value_class(self):
+    from .signals import BundleSignal
+    return BundleSignal
+
+  @property
+  def channels(self):
+    return [
+        BundledChannel(name, dir, _FromCirctType(type))
+        for (name, dir, type) in self._type.channels
+    ]
+
+  # Easy accessor for channel types by name.
+  def __getattr__(self, attrname: str):
+    for channel in self.channels:
+      if channel.name == attrname:
+        return channel.channel
+    return super().__getattribute__(attrname)
+
+  def __repr__(self):
+    return f"Bundle<{self.channels}>"
+
+  class PackSignalResults:
+    """Access the FROM channels of a packed bundle in a convenient way."""
+
+    def __init__(self, results: typing.List["ChannelSignal"],
+                 bundle_type: "Bundle"):
+      self.results = results
+      self.bundle_type = bundle_type
+      from_channels = [
+          c.name
+          for c in self.bundle_type.channels
+          if c.direction == ChannelDirection.FROM
+      ]
+      self._from_channels_idx = {
+          name: idx for idx, name in enumerate(from_channels)
+      }
+
+    @singledispatchmethod
+    def __getitem__(self, name: str) -> "ChannelSignal":
+      return self.results[self._from_channels_idx[name]]
+
+    @__getitem__.register(int)
+    def __getitem_int(self, idx: int) -> "ChannelSignal":
+      return self.results[idx]
+
+    def __getattr__(self, attrname: str):
+      if attrname in self._from_channels_idx:
+        return self.results[self._from_channels_idx[attrname]]
+      return super().__getattribute__(attrname)
+
+  def pack(
+      self, **kwargs: typing.Dict[str, "ChannelSignal"]
+  ) -> ("BundleSignal", typing.Dict[str, "ChannelSignal"]):
+    """Pack a dict of TO channels into a bundle. Returns the bundle AND a dict
+    of all the FROM channels."""
+
+    from .signals import BundleSignal, _FromCirctValue
+    to_channels = {
+        bc.name: (idx, bc) for idx, bc in enumerate(
+            filter(lambda c: c.direction == ChannelDirection.TO, self.channels))
+    }
+    from_channels = [
+        c for c in self.channels if c.direction == ChannelDirection.FROM
+    ]
+
+    operands = [None] * len(to_channels)
+    for name, value in kwargs.items():
+      if name not in to_channels:
+        raise ValueError(f"Unknown channel name '{name}'")
+      idx, bc = to_channels[name]
+      if value.type != bc.channel:
+        raise TypeError(f"Expected channel type {bc.channel}, got {value.type} "
+                        f"on channel '{name}'")
+      operands[idx] = value.value
+      del to_channels[name]
+    if len(to_channels) > 0:
+      raise ValueError(f"Missing channels: {', '.join(to_channels.keys())}")
+
+    pack_op = esi.PackBundleOp(self._type,
+                               [bc.channel._type for bc in from_channels],
+                               operands)
+
+    return BundleSignal(pack_op.bundle, self), Bundle.PackSignalResults(
+        [_FromCirctValue(c) for c in pack_op.fromChannels], self)
 
 
 class List(Type):

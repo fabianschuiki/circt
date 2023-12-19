@@ -4,9 +4,9 @@ hw.hierpath private @nla_0 [@PathModule::@sym_0]
 hw.hierpath private @nla_1 [@PathModule::@sym_1]
 hw.hierpath private @nla_2 [@PathModule::@sym_2]
 hw.hierpath private @nla_3 [@PathModule::@child]
-hw.hierpath private @nla_4 [@Child]
+hw.hierpath private @nla_4 [@PathModule::@child, @Child]
 hw.hierpath private @nla_5 [@PathModule::@child, @Child::@sym]
-hw.hierpath private @nla_6 [@PublicLeaf]
+hw.hierpath private @nla_6 [@PublicMiddle::@leaf, @PublicLeaf]
 hw.module @PathModule(in %in: i1 {hw.exportPort = #hw<innerSym@sym>}) {
   %wire = hw.wire %wire sym @sym_0 {hw.verilogName = "wire"} : i8
   %array = hw.wire %array sym [<@sym_1,1,public>] {hw.verilogName = "array"}: !hw.array<1xi8>
@@ -23,43 +23,76 @@ hw.module private @Child() {
 }
 
 hw.module @PublicMiddle() {
-  hw.instance "leaf" @PublicLeaf() -> () {hw.verilogName = "leaf"}
+  hw.instance "leaf" sym @leaf @PublicLeaf() -> () {hw.verilogName = "leaf"}
 }
 
 hw.module private @PublicLeaf() {}
 
 // CHECK-LABEL om.class @PathTest()
-om.class @PathTest() {
-  // CHECK: om.constant #om.path<"OMReferenceTarget:PathModule>in"> : !om.path
-  %0 = om.path reference @nla
+om.class @PathTest(%basepath : !om.basepath, %path : !om.path) {
+  // CHECK: om.frozenpath_create reference %basepath "PathModule>in"
+  %0 = om.path_create reference %basepath @nla
 
-  // CHECK: om.constant #om.path<"OMReferenceTarget:PathModule>wire"> : !om.path
-  %1 = om.path reference @nla_0
+  // CHECK: om.frozenpath_create reference %basepath "PathModule>wire"
+  %1 = om.path_create reference %basepath @nla_0
 
-  // CHECK: om.constant #om.path<"OMMemberReferenceTarget:PathModule>wire"> : !om.path
-  %2 = om.path member_reference @nla_0
+  // CHECK: om.frozenpath_create member_reference %basepath "PathModule>wire"
+  %2 = om.path_create member_reference %basepath @nla_0
 
-  // CHECK: om.constant #om.path<"OMDontTouchedReferenceTarget:PathModule>wire"> : !om.path
-  %4 = om.path dont_touch @nla_0
+  // CHECK: om.frozenpath_create dont_touch %basepath "PathModule>wire"
+  %4 = om.path_create dont_touch %basepath @nla_0
 
-  // CHECK: om.constant #om.path<"OMReferenceTarget:PathModule>array[0]"> : !om.path
-  %5 = om.path reference @nla_1
+  // CHECK: om.frozenpath_create reference %basepath "PathModule>array[0]" 
+  %5 = om.path_create reference %basepath @nla_1
 
-  // CHECK: om.constant #om.path<"OMReferenceTarget:PathModule>struct.a"> : !om.path
-  %6 = om.path reference @nla_2
+  // CHECK: om.frozenpath_create reference %basepath "PathModule>struct.a"
+  %6 = om.path_create reference %basepath @nla_2
 
-  // CHECK: om.constant #om.path<"OMReferenceTarget:PathModule/child:Child>non_local"> : !om.path
-  %7 = om.path reference @nla_5
+  // CHECK: om.frozenpath_create reference %basepath "PathModule/child:Child>non_local"
+  %7 = om.path_create reference %basepath @nla_5
 
-  // CHECK: om.constant #om.path<"OMInstanceTarget:PathModule/child:Child"> : !om.path
-  %8 = om.path instance @nla_3
+  // CHECK: om.frozenpath_create instance %basepath "PathModule/child:Child"
+  %8 = om.path_create instance %basepath @nla_3
 
-  // CHECK: om.constant #om.path<"OMMemberInstanceTarget:PathModule/child:Child"> : !om.path
-  %9 = om.path member_instance @nla_3
+  // CHECK: om.frozenpath_create member_instance %basepath "PathModule/child:Child"
+  %9 = om.path_create member_instance %basepath @nla_3
 
-  // CHECK: om.constant #om.path<"OMReferenceTarget:PathModule/child:Child"> : !om.path
-  %10 = om.path reference @nla_4
+  // CHECK: om.frozenpath_create reference %basepath "PathModule/child:Child"
+  %10 = om.path_create reference %basepath @nla_4
 
-  // CHECK: om.constant #om.path<"OMReferenceTarget:PublicMiddle/leaf:PublicLeaf"> : !om.path
-  %11 = om.path reference @nla_6
+  // CHECK: om.frozenpath_create reference %basepath "PublicMiddle/leaf:PublicLeaf"
+  %11 = om.path_create reference %basepath @nla_6
+
+  // CHECK: om.frozenpath_empty
+  %12 = om.path_empty
+
+  // CHECK: om.frozenbasepath_create %basepath "PathModule/child"
+  %13 = om.basepath_create %basepath @nla_3
+}
+
+// CHECK-LABEL om.class @ListCreateTest()
+om.class @ListCreateTest(%notpath: i1, %basepath : !om.basepath, %path : !om.path) {
+  // CHECK: [[NOT_PATH_LIST:%.+]] = om.list_create %notpath : i1
+  %0 = om.list_create %notpath : i1
+
+  // CHECK: [[BASE_PATH_LIST:%.+]] = om.list_create %basepath : !om.frozenbasepath
+  %1 = om.list_create %basepath : !om.basepath
+
+  // CHECK: [[PATH_LIST:%.+]] = om.list_create %path : !om.frozenpath
+  %2 = om.list_create %path : !om.path
+
+  // CHECK: [[NESTED_PATH_LIST:%.+]] = om.list_create [[PATH_LIST]] : !om.list<!om.frozenpath>
+  %3 = om.list_create %2 : !om.list<!om.path>
+
+  // CHECK: om.class.field @notpath, [[NOT_PATH_LIST]] : !om.list<i1>
+  om.class.field @notpath, %0 : !om.list<i1>
+
+  // CHECK: om.class.field @basepath, [[BASE_PATH_LIST]] : !om.list<!om.frozenbasepath>
+  om.class.field @basepath, %1 : !om.list<!om.basepath>
+
+  // CHECK: om.class.field @path, [[PATH_LIST]] : !om.list<!om.frozenpath>
+  om.class.field @path, %2 : !om.list<!om.path>
+
+  // CHECK: om.class.field @nestedpath, [[NESTED_PATH_LIST]] : !om.list<!om.list<!om.frozenpath>>
+  om.class.field @nestedpath, %3 : !om.list<!om.list<!om.path>>
 }

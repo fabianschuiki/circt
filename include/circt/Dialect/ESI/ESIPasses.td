@@ -26,28 +26,22 @@ def ESIConnectServices : Pass<"esi-connect-services", "mlir::ModuleOp"> {
     "circt::comb::CombDialect"];
 }
 
-def ESIAddCPPAPI: Pass<"esi-emit-cpp-api", "mlir::ModuleOp"> {
-  let summary = "Add C++ cosimulation API to the module";
-  let constructor = "circt::esi::createESIAddCPPAPIPass()";
-  let dependentDialects = ["circt::sv::SVDialect"];
-    let options = [
-    Option<"outputFile", "output-file", "std::string",
-           "\"ESISystem.h\"", "File to output C++ API into">,
-    Option<"toStdErr", "to-stderr", "bool", "false",
-      "If true, will emit the generated API to stderr">
+def ESIAppIDHier : Pass<"esi-appid-hier", "mlir::ModuleOp"> {
+  let summary = "Build an AppID based hierarchy rooted at top module 'top'";
+  let constructor = "circt::esi::createESIAppIDHierPass()";
+  let options = [
+    Option<"top", "top", "std::string",
+           "", "Root module of the instance hierarchy">
   ];
 }
 
-def ESIEmitCollateral: Pass<"esi-emit-collateral", "mlir::ModuleOp"> {
-  let summary = "Emit all the neccessary collateral";
-  let constructor = "circt::esi::createESIEmitCollateralPass()";
-  let dependentDialects = ["circt::sv::SVDialect"];
+def ESIBuildManifest : Pass<"esi-build-manifest", "mlir::ModuleOp"> {
+  let summary = "Build a manifest of an ESI system";
+  let constructor = "circt::esi::createESIBuildManifestPass()";
+  let dependentDialects = ["circt::hw::HWDialect", "circt::sv::SVDialect"];
   let options = [
-    Option<"schemaFile", "schema-file", "std::string",
-           "", "File to output capnp schema into">,
-    ListOption<"tops", "tops", "std::string",
-               "List of top modules to export Tcl for",
-               "llvm::cl::ZeroOrMore,">
+    Option<"top", "top", "std::string",
+           "", "Root module of the instance hierarchy">
   ];
 }
 
@@ -85,6 +79,10 @@ def LowerESItoHW: Pass<"lower-esi-to-hw", "mlir::ModuleOp"> {
   let summary = "Lower ESI to HW where possible and SV elsewhere.";
   let constructor = "circt::esi::createESItoHWPass()";
   let dependentDialects = ["circt::comb::CombDialect", "circt::hw::HWDialect"];
+  let options = [
+    Option<"platform", "platform", "std::string",
+           "", "Target this platform">
+  ];
 }
 
 #endif // CIRCT_DIALECT_ESI_ESIPASSES_TD

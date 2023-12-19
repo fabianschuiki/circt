@@ -1,12 +1,8 @@
-//===- OM.cpp - C Interface for the OM Dialect ----------------------------===//
+//===- OM.cpp - C interface for the OM dialect ----------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
-//===----------------------------------------------------------------------===//
-//
-//  Implements a C Interface for the OM Dialect
 //
 //===----------------------------------------------------------------------===//
 
@@ -42,6 +38,26 @@ MlirTypeID omClassTypeGetTypeID() { return wrap(ClassType::getTypeID()); }
 /// Get the name for a ClassType.
 MlirIdentifier omClassTypeGetName(MlirType type) {
   return wrap(cast<ClassType>(unwrap(type)).getClassName().getAttr());
+}
+
+/// Is the Type a FrozenBasePathType.
+bool omTypeIsAFrozenBasePathType(MlirType type) {
+  return isa<FrozenBasePathType>(unwrap(type));
+}
+
+/// Get the TypeID for a FrozenBasePathType.
+MlirTypeID omFrozenBasePathTypeGetTypeID(void) {
+  return wrap(FrozenBasePathType::getTypeID());
+}
+
+/// Is the Type a FrozenPathType.
+bool omTypeIsAFrozenPathType(MlirType type) {
+  return isa<FrozenPathType>(unwrap(type));
+}
+
+/// Get the TypeID for a FrozenPathType.
+MlirTypeID omFrozenPathTypeGetTypeID(void) {
+  return wrap(FrozenPathType::getTypeID());
 }
 
 /// Is the Type a StringType.
@@ -292,6 +308,23 @@ bool omEvaluatorValueIsAMap(OMEvaluatorValue evaluatorValue) {
   return isa<evaluator::MapValue>(unwrap(evaluatorValue).get());
 }
 
+bool omEvaluatorValueIsABasePath(OMEvaluatorValue evaluatorValue) {
+  return isa<evaluator::BasePathValue>(unwrap(evaluatorValue).get());
+}
+
+OMEvaluatorValue omEvaluatorBasePathGetEmpty(MlirContext context) {
+  return wrap(std::make_shared<evaluator::BasePathValue>(unwrap(context)));
+}
+
+bool omEvaluatorValueIsAPath(OMEvaluatorValue evaluatorValue) {
+  return isa<evaluator::PathValue>(unwrap(evaluatorValue).get());
+}
+
+MlirAttribute omEvaluatorPathGetAsString(OMEvaluatorValue evaluatorValue) {
+  const auto *path = cast<evaluator::PathValue>(unwrap(evaluatorValue).get());
+  return wrap((Attribute)path->getAsString());
+}
+
 //===----------------------------------------------------------------------===//
 // ReferenceAttr API.
 //===----------------------------------------------------------------------===//
@@ -362,16 +395,4 @@ MlirIdentifier omMapAttrGetElementKey(MlirAttribute attr, intptr_t pos) {
 MlirAttribute omMapAttrGetElementValue(MlirAttribute attr, intptr_t pos) {
   auto mapAttr = llvm::cast<MapAttr>(unwrap(attr));
   return wrap(mapAttr.getElements().getValue()[pos].getValue());
-}
-
-//===----------------------------------------------------------------------===//
-// PathAttr API.
-//===----------------------------------------------------------------------===//
-
-bool omAttrIsAPathAttr(MlirAttribute attr) {
-  return unwrap(attr).isa<PathAttr>();
-}
-
-MlirIdentifier omPathAttrGetPath(MlirAttribute attr) {
-  return wrap(unwrap(attr).cast<PathAttr>().getPath());
 }

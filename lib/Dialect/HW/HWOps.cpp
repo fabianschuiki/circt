@@ -14,9 +14,9 @@
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/CustomDirectiveImpl.h"
 #include "circt/Dialect/HW/HWAttributes.h"
+#include "circt/Dialect/HW/HWInstanceImplementation.h"
 #include "circt/Dialect/HW/HWSymCache.h"
 #include "circt/Dialect/HW/HWVisitors.h"
-#include "circt/Dialect/HW/InstanceImplementation.h"
 #include "circt/Dialect/HW/ModuleImplementation.h"
 #include "circt/Support/CustomDirectiveImpl.h"
 #include "circt/Support/Namespace.h"
@@ -65,17 +65,15 @@ bool hw::isCombinational(Operation *op) {
          IsCombClassifier().dispatchTypeOpVisitor(op);
 }
 
-static Value foldStructExtract(Operation *inputOp, StringRef field) {
+static Value foldStructExtract(Operation *inputOp, uint32_t fieldIndex) {
   // A struct extract of a struct create -> corresponding struct create operand.
   if (auto structCreate = dyn_cast_or_null<StructCreateOp>(inputOp)) {
-    auto ty = type_cast<StructType>(structCreate.getResult().getType());
-    if (auto idx = ty.getFieldIndex(field))
-      return structCreate.getOperand(*idx);
-    return {};
+    return structCreate.getOperand(fieldIndex);
   }
+
   // Extracting injected field -> corresponding field
   if (auto structInject = dyn_cast_or_null<StructInjectOp>(inputOp)) {
-    if (structInject.getField() != field)
+    if (structInject.getFieldIndex() != fieldIndex)
       return {};
     return structInject.getNewValue();
   }
@@ -104,14 +102,13 @@ static void getAsmBlockArgumentNamesImpl(mlir::Region &region,
   if (region.empty())
     return;
   // Assign port names to the bbargs.
-  //  auto *module = region.getParentOp();
   auto module = cast<HWModuleOp>(region.getParentOp());
 
   auto *block = &region.front();
   for (size_t i = 0, e = block->getNumArguments(); i != e; ++i) {
     auto name = module.getInputName(i);
-    if (!name.empty())
-      setNameFn(block->getArgument(i), name);
+    // Let mlir deterministically convert names to valid identifiers
+    setNameFn(block->getArgument(i), name);
   }
 }
 
@@ -357,7 +354,7 @@ static bool hasAdditionalAttributes(Op op,
 void WireOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
   // If the wire has an optional 'name' attribute, use it.
   auto nameAttr = (*this)->getAttrOfType<StringAttr>("name");
-  if (!nameAttr.getValue().empty())
+  if (nameAttr && !nameAttr.getValue().empty())
     setNameFn(getResult(), nameAttr.getValue());
 }
 
@@ -410,6 +407,11 @@ static LogicalResult checkAttributes(Operation *op, Attribute attr, Type type) {
     if (!arrayAttr)
       return op->emitOpError("expected array attribute for constant of type ")
              << type;
+    if (structType.getElements().size() != arrayAttr.size())
+      return op->emitOpError("array attribute (")
+             << arrayAttr.size() << ") has wrong size for struct constant ("
+             << structType.getElements().size() << ")";
+
     for (auto [attr, fieldInfo] :
          llvm::zip(arrayAttr.getValue(), structType.getElements())) {
       if (failed(checkAttributes(op, attr, fieldInfo.type)))
@@ -420,6 +422,11 @@ static LogicalResult checkAttributes(Operation *op, Attribute attr, Type type) {
     if (!arrayAttr)
       return op->emitOpError("expected array attribute for constant of type ")
              << type;
+    if (arrayType.getNumElements() != arrayAttr.size())
+      return op->emitOpError("array attribute (")
+             << arrayAttr.size() << ") has wrong size for array constant ("
+             << arrayType.getNumElements() << ")";
+
     auto elementType = arrayType.getElementType();
     for (auto attr : arrayAttr.getValue()) {
       if (failed(checkAttributes(op, attr, elementType)))
@@ -431,6 +438,12 @@ static LogicalResult checkAttributes(Operation *op, Attribute attr, Type type) {
       return op->emitOpError("expected array attribute for constant of type ")
              << type;
     auto elementType = arrayType.getElementType();
+    if (arrayType.getNumElements() != arrayAttr.size())
+      return op->emitOpError("array attribute (")
+             << arrayAttr.size()
+             << ") has wrong size for unpacked array constant ("
+             << arrayType.getNumElements() << ")";
+
     for (auto attr : arrayAttr.getValue()) {
       if (failed(checkAttributes(op, attr, elementType)))
         return failure();
@@ -503,18 +516,19 @@ bool hw::isAnyModuleOrInstance(Operation *moduleOrInstance) {
 /// Return the signature for a module as a function type from the module itself
 /// or from an hw::InstanceOp.
 FunctionType hw::getModuleType(Operation *moduleOrInstance) {
-  if (auto instance = dyn_cast<InstanceOp>(moduleOrInstance)) {
-    SmallVector<Type> inputs(instance->getOperandTypes());
-    SmallVector<Type> results(instance->getResultTypes());
-    return FunctionType::get(instance->getContext(), inputs, results);
-  }
-
-  if (auto mod = dyn_cast<HWModuleLike>(moduleOrInstance))
-    return mod.getHWModuleType().getFuncType();
-
-  return cast<mlir::FunctionOpInterface>(moduleOrInstance)
-      .getFunctionType()
-      .cast<FunctionType>();
+  return TypeSwitch<Operation *, FunctionType>(moduleOrInstance)
+      .Case<InstanceOp, InstanceChoiceOp>([](auto instance) {
+        SmallVector<Type> inputs(instance->getOperandTypes());
+        SmallVector<Type> results(instance->getResultTypes());
+        return FunctionType::get(instance->getContext(), inputs, results);
+      })
+      .Case<HWModuleLike>(
+          [](auto mod) { return mod.getHWModuleType().getFuncType(); })
+      .Default([](Operation *op) {
+        return cast<mlir::FunctionOpInterface>(op)
+            .getFunctionType()
+            .cast<FunctionType>();
+      });
 }
 
 /// Return the name to use for the Verilog module that we're referencing
@@ -1172,15 +1186,17 @@ void HWModuleExternOp::getAsmBlockArgumentNames(
 
 template <typename ModTy>
 static SmallVector<Location> getAllPortLocs(ModTy module) {
-  SmallVector<Location> retval;
   auto locs = module.getPortLocs();
   if (locs) {
+    SmallVector<Location> retval;
     for (auto l : *locs)
       retval.push_back(cast<Location>(l));
     // Either we have a length of 0 or the correct length
     assert(!locs->size() || locs->size() == module.getNumPorts());
+    return retval;
   }
-  return retval;
+  return SmallVector<Location>(module.getNumPorts(),
+                               UnknownLoc::get(module.getContext()));
 }
 
 SmallVector<Location> HWModuleOp::getAllPortLocs() {
@@ -1370,8 +1386,9 @@ static SmallVector<PortInfo> getPortList(ModuleTy &mod) {
   auto modTy = mod.getHWModuleType();
   auto emptyDict = DictionaryAttr::get(mod.getContext());
   SmallVector<PortInfo> retval;
+  auto locs = mod.getAllPortLocs();
   for (unsigned i = 0, e = modTy.getNumPorts(); i < e; ++i) {
-    LocationAttr loc = mod.getPortLoc(i);
+    LocationAttr loc = locs[i];
     DictionaryAttr attrs =
         dyn_cast_or_null<DictionaryAttr>(mod.getPortAttrs(i));
     if (!attrs)
@@ -1414,8 +1431,17 @@ void InstanceOp::build(OpBuilder &builder, OperationState &result,
   auto mod = cast<hw::HWModuleLike>(module);
   auto argNames = builder.getArrayAttr(mod.getInputNames());
   auto resultNames = builder.getArrayAttr(mod.getOutputNames());
-  FunctionType modType = mod.getHWModuleType().getFuncType();
-  build(builder, result, modType.getResults(), name,
+
+  // Try to resolve the parameterized module type. If failed, use the module's
+  // parmeterized type. If the client doesn't fix this error, the verifier will
+  // fail.
+  ModuleType modType = mod.getHWModuleType();
+  FailureOr<ModuleType> resolvedModType = modType.resolveParametricTypes(
+      parameters, result.location, /*emitErrors=*/false);
+  if (succeeded(resolvedModType))
+    modType = *resolvedModType;
+  FunctionType funcType = resolvedModType->getFuncType();
+  build(builder, result, funcType.getResults(), name,
         FlatSymbolRefAttr::get(SymbolTable::getSymbolName(module)), inputs,
         argNames, resultNames, parameters, innerSym);
 }
@@ -1423,10 +1449,6 @@ void InstanceOp::build(OpBuilder &builder, OperationState &result,
 std::optional<size_t> InstanceOp::getTargetResultIndex() {
   // Inner symbols on instance operations target the op not any result.
   return std::nullopt;
-}
-
-Operation *InstanceOp::getReferencedModuleSlow() {
-  return getReferencedModuleCached(/*cache=*/nullptr);
 }
 
 LogicalResult InstanceOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
@@ -1515,100 +1537,146 @@ void InstanceOp::print(OpAsmPrinter &p) {
                        "argNames", "resultNames", "parameters"});
 }
 
-/// Return the name of the specified input port or null if it cannot be
-/// determined.
-StringAttr InstanceOp::getArgumentName(size_t idx) {
-  return instance_like_impl::getName(getArgNames(), idx);
+//===----------------------------------------------------------------------===//
+// InstanceChoiceOp
+//===----------------------------------------------------------------------===//
+
+std::optional<size_t> InstanceChoiceOp::getTargetResultIndex() {
+  // Inner symbols on instance operations target the op not any result.
+  return std::nullopt;
 }
 
-/// Return the name of the specified result or null if it cannot be
-/// determined.
-StringAttr InstanceOp::getResultName(size_t idx) {
-  return instance_like_impl::getName(getResultNames(), idx);
-}
-
-/// Change the name of the specified input port.
-void InstanceOp::setArgumentName(size_t i, StringAttr name) {
-  setInputNames(instance_like_impl::updateName(getArgNames(), i, name));
-}
-
-/// Change the name of the specified output port.
-void InstanceOp::setResultName(size_t i, StringAttr name) {
-  setOutputNames(instance_like_impl::updateName(getResultNames(), i, name));
-}
-
-/// Suggest a name for each result value based on the saved result names
-/// attribute.
-void InstanceOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  instance_like_impl::getAsmResultNames(setNameFn, getInstanceName(),
-                                        getResultNames(), getResults());
-}
-
-SmallVector<PortInfo> InstanceOp::getPortList() {
-  SmallVector<PortInfo> ports;
-  auto emptyDict = DictionaryAttr::get(getContext());
-  auto argNames = (*this)->getAttrOfType<ArrayAttr>("argNames");
-  auto argTypes = getModuleType(*this).getInputs();
-  auto argLocs = (*this)->getAttrOfType<ArrayAttr>("argLocs");
-  for (unsigned i = 0, e = argTypes.size(); i < e; ++i) {
-    auto type = argTypes[i];
-    auto direction = ModulePort::Direction::Input;
-
-    if (auto inout = type.dyn_cast<InOutType>()) {
-      type = inout.getElementType();
-      direction = ModulePort::Direction::InOut;
+LogicalResult
+InstanceChoiceOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  for (Attribute name : getModuleNamesAttr()) {
+    if (failed(instance_like_impl::verifyInstanceOfHWModule(
+            *this, name.cast<FlatSymbolRefAttr>(), getInputs(),
+            getResultTypes(), getArgNames(), getResultNames(), getParameters(),
+            symbolTable))) {
+      return failure();
     }
+  }
+  return success();
+}
 
-    LocationAttr loc;
-    if (argLocs)
-      loc = argLocs[i].cast<LocationAttr>();
-    ports.push_back(
-        {{argNames[i].cast<StringAttr>(), type, direction}, i, emptyDict, loc});
+LogicalResult InstanceChoiceOp::verify() {
+  auto module = (*this)->getParentOfType<HWModuleOp>();
+  if (!module)
+    return success();
+
+  auto moduleParameters = module->getAttrOfType<ArrayAttr>("parameters");
+  instance_like_impl::EmitErrorFn emitError =
+      [&](const std::function<bool(InFlightDiagnostic &)> &fn) {
+        auto diag = emitOpError();
+        if (fn(diag))
+          diag.attachNote(module->getLoc()) << "module declared here";
+      };
+  return instance_like_impl::verifyParameterStructure(
+      getParameters(), moduleParameters, emitError);
+}
+
+ParseResult InstanceChoiceOp::parse(OpAsmParser &parser,
+                                    OperationState &result) {
+  StringAttr instanceNameAttr;
+  InnerSymAttr innerSym;
+  SmallVector<Attribute> moduleNames;
+  SmallVector<Attribute> targetNames;
+  SmallVector<OpAsmParser::UnresolvedOperand, 4> inputsOperands;
+  SmallVector<Type, 1> inputsTypes, allResultTypes;
+  ArrayAttr argNames, resultNames, parameters;
+  auto noneType = parser.getBuilder().getType<NoneType>();
+
+  if (parser.parseAttribute(instanceNameAttr, noneType, "instanceName",
+                            result.attributes))
+    return failure();
+
+  if (succeeded(parser.parseOptionalKeyword("sym"))) {
+    // Parsing an optional symbol name doesn't fail, so no need to check the
+    // result.
+    if (parser.parseCustomAttributeWithFallback(innerSym))
+      return failure();
+    result.addAttribute(InnerSymbolTable::getInnerSymbolAttrName(), innerSym);
   }
 
-  auto resultNames = (*this)->getAttrOfType<ArrayAttr>("resultNames");
-  auto resultTypes = getModuleType(*this).getResults();
-  auto resultLocs = (*this)->getAttrOfType<ArrayAttr>("resultLocs");
-  for (unsigned i = 0, e = resultTypes.size(); i < e; ++i) {
-    LocationAttr loc;
-    if (resultLocs)
-      loc = resultLocs[i].cast<LocationAttr>();
-    ports.push_back({{resultNames[i].cast<StringAttr>(), resultTypes[i],
-                      ModulePort::Direction::Output},
-                     i,
-                     emptyDict,
-                     loc});
+  FlatSymbolRefAttr defaultModuleName;
+  if (parser.parseAttribute(defaultModuleName))
+    return failure();
+  moduleNames.push_back(defaultModuleName);
+
+  while (succeeded(parser.parseOptionalKeyword("or"))) {
+    FlatSymbolRefAttr moduleName;
+    StringAttr targetName;
+    if (parser.parseAttribute(moduleName) ||
+        parser.parseOptionalKeyword("if") || parser.parseAttribute(targetName))
+      return failure();
+    moduleNames.push_back(moduleName);
+    targetNames.push_back(targetName);
   }
-  return ports;
+
+  llvm::SMLoc parametersLoc, inputsOperandsLoc;
+  if (parser.getCurrentLocation(&parametersLoc) ||
+      parseOptionalParameterList(parser, parameters) ||
+      parseInputPortList(parser, inputsOperands, inputsTypes, argNames) ||
+      parser.resolveOperands(inputsOperands, inputsTypes, inputsOperandsLoc,
+                             result.operands) ||
+      parser.parseArrow() ||
+      parseOutputPortList(parser, allResultTypes, resultNames) ||
+      parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
+  }
+
+  result.addAttribute("moduleNames",
+                      ArrayAttr::get(parser.getContext(), moduleNames));
+  result.addAttribute("targetNames",
+                      ArrayAttr::get(parser.getContext(), targetNames));
+  result.addAttribute("argNames", argNames);
+  result.addAttribute("resultNames", resultNames);
+  result.addAttribute("parameters", parameters);
+  result.addTypes(allResultTypes);
+  return success();
 }
 
-PortInfo InstanceOp::getPort(size_t idx) { return getPortList()[idx]; }
+void InstanceChoiceOp::print(OpAsmPrinter &p) {
+  p << ' ';
+  p.printAttributeWithoutType(getInstanceNameAttr());
+  if (auto attr = getInnerSymAttr()) {
+    p << " sym ";
+    attr.print(p);
+  }
+  p << ' ';
 
-size_t InstanceOp::getNumPorts() {
-  return getNumInputPorts() + getNumOutputPorts();
+  auto moduleNames = getModuleNamesAttr();
+  auto targetNames = getTargetNamesAttr();
+  assert(moduleNames.size() == targetNames.size() + 1);
+
+  p.printAttributeWithoutType(moduleNames[0]);
+  for (size_t i = 0, n = targetNames.size(); i < n; ++i) {
+    p << " or ";
+    p.printAttributeWithoutType(moduleNames[i + 1]);
+    p << " if ";
+    p.printAttributeWithoutType(targetNames[i]);
+  }
+
+  printOptionalParameterList(p, *this, getParameters());
+  printInputPortList(p, *this, getInputs(), getInputs().getTypes(),
+                     getArgNames());
+  p << " -> ";
+  printOutputPortList(p, *this, getResultTypes(), getResultNames());
+
+  p.printOptionalAttrDict(
+      (*this)->getAttrs(),
+      /*elidedAttrs=*/{"instanceName",
+                       InnerSymbolTable::getInnerSymbolAttrName(),
+                       "moduleNames", "targetNames", "argNames", "resultNames",
+                       "parameters"});
 }
 
-size_t InstanceOp::getNumInputPorts() { return getNumOperands(); }
-
-size_t InstanceOp::getNumOutputPorts() { return getNumResults(); }
-
-size_t InstanceOp::getPortIdForInputId(size_t idx) { return idx; }
-
-size_t InstanceOp::getPortIdForOutputId(size_t idx) {
-  return idx + getNumInputPorts();
-}
-
-void InstanceOp::getValues(SmallVectorImpl<Value> &values,
-                           const ModulePortInfo &mpi) {
-  size_t inputPort = 0, resultPort = 0;
-  values.resize(mpi.size());
-  auto results = getResults();
-  auto inputs = getInputs();
-  for (auto [idx, port] : llvm::enumerate(mpi))
-    if (mpi.at(idx).isOutput())
-      values[idx] = results[resultPort++];
-    else
-      values[idx] = inputs[inputPort++];
+ArrayAttr InstanceChoiceOp::getReferencedModuleNamesAttr() {
+  SmallVector<Attribute> moduleNames;
+  for (Attribute attr : getModuleNamesAttr()) {
+    moduleNames.push_back(attr.cast<FlatSymbolRefAttr>().getAttr());
+  }
+  return ArrayAttr::get(getContext(), moduleNames);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2311,9 +2379,10 @@ LogicalResult StructExplodeOp::canonicalize(StructExplodeOp op,
   auto *inputOp = op.getInput().getDefiningOp();
   auto elements = type_cast<StructType>(op.getInput().getType()).getElements();
   auto result = failure();
-  for (auto [element, res] : llvm::zip(elements, op.getResults())) {
-    if (auto foldResult = foldStructExtract(inputOp, element.name.str())) {
-      rewriter.replaceAllUsesWith(res, foldResult);
+  auto opResults = op.getResults();
+  for (uint32_t index = 0; index < elements.size(); index++) {
+    if (auto foldResult = foldStructExtract(inputOp, index)) {
+      rewriter.replaceAllUsesWith(opResults[index], foldResult);
       result = success();
     }
   }
@@ -2341,6 +2410,32 @@ void StructExplodeOp::build(OpBuilder &odsBuilder, OperationState &odsState,
 // StructExtractOp
 //===----------------------------------------------------------------------===//
 
+/// Ensure an aggregate op's field index is within the bounds of
+/// the aggregate type and the accessed field is of 'elementType'.
+template <typename AggregateOp, typename AggregateType>
+static LogicalResult verifyAggregateFieldIndexAndType(AggregateOp &op,
+                                                      AggregateType aggType,
+                                                      Type elementType) {
+  auto index = op.getFieldIndex();
+  if (index >= aggType.getElements().size())
+    return op.emitOpError() << "field index " << index
+                            << " exceeds element count of aggregate type";
+
+  if (getCanonicalType(elementType) !=
+      getCanonicalType(aggType.getElements()[index].type))
+    return op.emitOpError()
+           << "type " << aggType.getElements()[index].type
+           << " of accessed field in aggregate at index " << index
+           << " does not match expected type " << elementType;
+
+  return success();
+}
+
+LogicalResult StructExtractOp::verify() {
+  return verifyAggregateFieldIndexAndType<StructExtractOp, StructType>(
+      *this, getInput().getType(), getType());
+}
+
 /// Use the same parser for both struct_extract and union_extract since the
 /// syntax is identical.
 template <typename AggregateType>
@@ -2350,8 +2445,7 @@ static ParseResult parseExtractOp(OpAsmParser &parser, OperationState &result) {
   Type declType;
 
   if (parser.parseOperand(operand) || parser.parseLSquare() ||
-      parser.parseAttribute(fieldName, "field", result.attributes) ||
-      parser.parseRSquare() ||
+      parser.parseAttribute(fieldName) || parser.parseRSquare() ||
       parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseColonType(declType))
     return failure();
@@ -2360,11 +2454,18 @@ static ParseResult parseExtractOp(OpAsmParser &parser, OperationState &result) {
     return parser.emitError(parser.getNameLoc(),
                             "invalid kind of type specified");
 
-  Type resultType = aggType.getFieldType(fieldName.getValue());
-  if (!resultType) {
-    parser.emitError(parser.getNameLoc(), "invalid field name specified");
+  auto fieldIndex = aggType.getFieldIndex(fieldName);
+  if (!fieldIndex) {
+    parser.emitError(parser.getNameLoc(), "field name '" +
+                                              fieldName.getValue() +
+                                              "' not found in aggregate type");
     return failure();
   }
+
+  auto indexAttr =
+      IntegerAttr::get(IntegerType::get(parser.getContext(), 32), *fieldIndex);
+  result.addAttribute("fieldIndex", indexAttr);
+  Type resultType = aggType.getElements()[*fieldIndex].type;
   result.addTypes(resultType);
 
   if (parser.resolveOperand(operand, declType, result.operands))
@@ -2378,8 +2479,8 @@ template <typename AggType>
 static void printExtractOp(OpAsmPrinter &printer, AggType op) {
   printer << " ";
   printer.printOperand(op.getInput());
-  printer << "[\"" << op.getField() << "\"]";
-  printer.printOptionalAttrDict(op->getAttrs(), {"field"});
+  printer << "[\"" << op.getFieldName() << "\"]";
+  printer.printOptionalAttrDict(op->getAttrs(), {"fieldIndex"});
   printer << " : " << op.getInput().getType();
 }
 
@@ -2394,27 +2495,30 @@ void StructExtractOp::print(OpAsmPrinter &printer) {
 
 void StructExtractOp::build(OpBuilder &builder, OperationState &odsState,
                             Value input, StructType::FieldInfo field) {
-  build(builder, odsState, field.type, input, field.name);
+  auto fieldIndex =
+      type_cast<StructType>(input.getType()).getFieldIndex(field.name);
+  assert(fieldIndex.has_value() && "field name not found in aggregate type");
+  build(builder, odsState, field.type, input, *fieldIndex);
 }
 
 void StructExtractOp::build(OpBuilder &builder, OperationState &odsState,
-                            Value input, StringAttr fieldAttr) {
+                            Value input, StringAttr fieldName) {
   auto structType = type_cast<StructType>(input.getType());
-  auto resultType = structType.getFieldType(fieldAttr);
-  build(builder, odsState, resultType, input, fieldAttr);
+  auto fieldIndex = structType.getFieldIndex(fieldName);
+  assert(fieldIndex.has_value() && "field name not found in aggregate type");
+  auto resultType = structType.getElements()[*fieldIndex].type;
+  build(builder, odsState, resultType, input, *fieldIndex);
 }
 
 OpFoldResult StructExtractOp::fold(FoldAdaptor adaptor) {
   if (auto constOperand = adaptor.getInput()) {
     // Fold extract from aggregate constant
-    auto operandType = type_cast<StructType>(getOperand().getType());
-    auto fieldIdx = operandType.getFieldIndex(getField());
     auto operandAttr = llvm::cast<ArrayAttr>(constOperand);
-    return operandAttr.getValue()[*fieldIdx];
+    return operandAttr.getValue()[getFieldIndex()];
   }
 
   if (auto foldResult =
-          foldStructExtract(getInput().getDefiningOp(), getField()))
+          foldStructExtract(getInput().getDefiningOp(), getFieldIndex()))
     return foldResult;
   return {};
 }
@@ -2425,9 +2529,9 @@ LogicalResult StructExtractOp::canonicalize(StructExtractOp op,
 
   // b = extract(inject(x["a"], v0)["b"]) => extract(x, "b")
   if (auto structInject = dyn_cast_or_null<StructInjectOp>(inputOp)) {
-    if (structInject.getField() != op.getField()) {
+    if (structInject.getFieldIndex() != op.getFieldIndex()) {
       rewriter.replaceOpWithNewOp<StructExtractOp>(
-          op, op.getType(), structInject.getInput(), op.getField());
+          op, op.getType(), structInject.getInput(), op.getFieldIndexAttr());
       return success();
     }
   }
@@ -2437,18 +2541,25 @@ LogicalResult StructExtractOp::canonicalize(StructExtractOp op,
 
 void StructExtractOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
-  auto structType = type_cast<StructType>(getInput().getType());
-  for (auto field : structType.getElements()) {
-    if (field.name == getField()) {
-      setNameFn(getResult(), field.name.str());
-      return;
-    }
-  }
+  setNameFn(getResult(), getFieldName());
 }
 
 //===----------------------------------------------------------------------===//
 // StructInjectOp
 //===----------------------------------------------------------------------===//
+
+void StructInjectOp::build(OpBuilder &builder, OperationState &odsState,
+                           Value input, StringAttr fieldName, Value newValue) {
+  auto structType = type_cast<StructType>(input.getType());
+  auto fieldIndex = structType.getFieldIndex(fieldName);
+  assert(fieldIndex.has_value() && "field name not found in aggregate type");
+  build(builder, odsState, input, *fieldIndex, newValue);
+}
+
+LogicalResult StructInjectOp::verify() {
+  return verifyAggregateFieldIndexAndType<StructInjectOp, StructType>(
+      *this, getInput().getType(), getNewValue().getType());
+}
 
 ParseResult StructInjectOp::parse(OpAsmParser &parser, OperationState &result) {
   llvm::SMLoc inputOperandsLoc = parser.getCurrentLocation();
@@ -2457,9 +2568,8 @@ ParseResult StructInjectOp::parse(OpAsmParser &parser, OperationState &result) {
   Type declType;
 
   if (parser.parseOperand(operand) || parser.parseLSquare() ||
-      parser.parseAttribute(fieldName, "field", result.attributes) ||
-      parser.parseRSquare() || parser.parseComma() ||
-      parser.parseOperand(val) ||
+      parser.parseAttribute(fieldName) || parser.parseRSquare() ||
+      parser.parseComma() || parser.parseOperand(val) ||
       parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseColonType(declType))
     return failure();
@@ -2467,13 +2577,20 @@ ParseResult StructInjectOp::parse(OpAsmParser &parser, OperationState &result) {
   if (!structType)
     return parser.emitError(inputOperandsLoc, "invalid kind of type specified");
 
-  Type resultType = structType.getFieldType(fieldName.getValue());
-  if (!resultType) {
-    parser.emitError(inputOperandsLoc, "invalid field name specified");
+  auto fieldIndex = structType.getFieldIndex(fieldName);
+  if (!fieldIndex) {
+    parser.emitError(parser.getNameLoc(), "field name '" +
+                                              fieldName.getValue() +
+                                              "' not found in aggregate type");
     return failure();
   }
+
+  auto indexAttr =
+      IntegerAttr::get(IntegerType::get(parser.getContext(), 32), *fieldIndex);
+  result.addAttribute("fieldIndex", indexAttr);
   result.addTypes(declType);
 
+  Type resultType = structType.getElements()[*fieldIndex].type;
   if (parser.resolveOperands({operand, val}, {declType, resultType},
                              inputOperandsLoc, result.operands))
     return failure();
@@ -2483,9 +2600,9 @@ ParseResult StructInjectOp::parse(OpAsmParser &parser, OperationState &result) {
 void StructInjectOp::print(OpAsmPrinter &printer) {
   printer << " ";
   printer.printOperand(getInput());
-  printer << "[\"" << getField() << "\"], ";
+  printer << "[\"" << getFieldName() << "\"], ";
   printer.printOperand(getNewValue());
-  printer.printOptionalAttrDict((*this)->getAttrs(), {"field"});
+  printer.printOptionalAttrDict((*this)->getAttrs(), {"fieldIndex"});
   printer << " : " << getInput().getType();
 }
 
@@ -2496,9 +2613,7 @@ OpFoldResult StructInjectOp::fold(FoldAdaptor adaptor) {
     return {};
   SmallVector<Attribute> array;
   llvm::copy(input.cast<ArrayAttr>(), std::back_inserter(array));
-  StructType structType = getInput().getType();
-  auto index = *structType.getFieldIndex(getField());
-  array[index] = newValue;
+  array[getFieldIndex()] = newValue;
   return ArrayAttr::get(getContext(), array);
 }
 
@@ -2515,7 +2630,7 @@ LogicalResult StructInjectOp::canonicalize(StructInjectOp op,
     if (!injects.insert(inject).second)
       return failure();
 
-    fields.try_emplace(inject.getFieldAttr(), inject.getNewValue());
+    fields.try_emplace(inject.getFieldNameAttr(), inject.getNewValue());
     input = inject.getInput();
     inject = dyn_cast_or_null<StructInjectOp>(input.getDefiningOp());
   } while (inject);
@@ -2541,11 +2656,11 @@ LogicalResult StructInjectOp::canonicalize(StructInjectOp op,
     return failure();
 
   // Eliminate overwrites. The hash map contains the last write to each field.
-  for (const auto &field : elements) {
-    auto it = fields.find(field.name);
+  for (uint32_t fieldIndex = 0; fieldIndex < elements.size(); fieldIndex++) {
+    auto it = fields.find(elements[fieldIndex].name);
     if (it == fields.end())
       continue;
-    input = rewriter.create<StructInjectOp>(op.getLoc(), ty, input, field.name,
+    input = rewriter.create<StructInjectOp>(op.getLoc(), ty, input, fieldIndex,
                                             it->second);
   }
 
@@ -2557,14 +2672,26 @@ LogicalResult StructInjectOp::canonicalize(StructInjectOp op,
 // UnionCreateOp
 //===----------------------------------------------------------------------===//
 
+LogicalResult UnionCreateOp::verify() {
+  return verifyAggregateFieldIndexAndType<UnionCreateOp, UnionType>(
+      *this, getType(), getInput().getType());
+}
+
+void UnionCreateOp::build(OpBuilder &builder, OperationState &odsState,
+                          Type unionType, StringAttr fieldName, Value input) {
+  auto fieldIndex = type_cast<UnionType>(unionType).getFieldIndex(fieldName);
+  assert(fieldIndex.has_value() && "field name not found in aggregate type");
+  build(builder, odsState, unionType, *fieldIndex, input);
+}
+
 ParseResult UnionCreateOp::parse(OpAsmParser &parser, OperationState &result) {
   Type declOrAliasType;
-  StringAttr field;
+  StringAttr fieldName;
   OpAsmParser::UnresolvedOperand input;
   llvm::SMLoc fieldLoc = parser.getCurrentLocation();
 
-  if (parser.parseAttribute(field, "field", result.attributes) ||
-      parser.parseComma() || parser.parseOperand(input) ||
+  if (parser.parseAttribute(fieldName) || parser.parseComma() ||
+      parser.parseOperand(input) ||
       parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseColonType(declOrAliasType))
     return failure();
@@ -2574,12 +2701,17 @@ ParseResult UnionCreateOp::parse(OpAsmParser &parser, OperationState &result) {
     return parser.emitError(parser.getNameLoc(),
                             "expected !hw.union type or alias");
 
-  Type inputType = declType.getFieldType(field.getValue());
-  if (!inputType) {
+  auto fieldIndex = declType.getFieldIndex(fieldName);
+  if (!fieldIndex) {
     parser.emitError(fieldLoc, "cannot find union field '")
-        << field.getValue() << '\'';
+        << fieldName.getValue() << '\'';
     return failure();
   }
+
+  auto indexAttr =
+      IntegerAttr::get(IntegerType::get(parser.getContext(), 32), *fieldIndex);
+  result.addAttribute("fieldIndex", indexAttr);
+  Type inputType = declType.getElements()[*fieldIndex].type;
 
   if (parser.resolveOperand(input, inputType, result.operands))
     return failure();
@@ -2588,9 +2720,9 @@ ParseResult UnionCreateOp::parse(OpAsmParser &parser, OperationState &result) {
 }
 
 void UnionCreateOp::print(OpAsmPrinter &printer) {
-  printer << " \"" << getField() << "\", ";
+  printer << " \"" << getFieldName() << "\", ";
   printer.printOperand(getInput());
-  printer.printOptionalAttrDict((*this)->getAttrs(), {"field"});
+  printer.printOptionalAttrDict((*this)->getAttrs(), {"fieldIndex"});
   printer << " : " << getType();
 }
 
@@ -2610,9 +2742,27 @@ LogicalResult UnionExtractOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attrs, mlir::OpaqueProperties properties,
     mlir::RegionRange regions, SmallVectorImpl<Type> &results) {
-  results.push_back(cast<UnionType>(getCanonicalType(operands[0].getType()))
-                        .getFieldType(attrs.getAs<StringAttr>("field")));
+  auto unionElements =
+      hw::type_cast<UnionType>((operands[0].getType())).getElements();
+  unsigned fieldIndex =
+      attrs.getAs<IntegerAttr>("fieldIndex").getValue().getZExtValue();
+  if (fieldIndex >= unionElements.size()) {
+    if (loc)
+      mlir::emitError(*loc, "field index " + Twine(fieldIndex) +
+                                " exceeds element count of aggregate type");
+    return failure();
+  }
+  results.push_back(unionElements[fieldIndex].type);
   return success();
+}
+
+void UnionExtractOp::build(OpBuilder &odsBuilder, OperationState &odsState,
+                           Value input, StringAttr fieldName) {
+  auto unionType = type_cast<UnionType>(input.getType());
+  auto fieldIndex = unionType.getFieldIndex(fieldName);
+  assert(fieldIndex.has_value() && "field name not found in aggregate type");
+  auto resultType = unionType.getElements()[*fieldIndex].type;
+  build(odsBuilder, odsState, resultType, input, *fieldIndex);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3020,7 +3170,27 @@ bool HierPathOp::isComponent() { return (bool)ref(); }
 // module port or a declaration inside the module.
 // 7. The last element of the namepath can also be a module symbol.
 LogicalResult HierPathOp::verifyInnerRefs(hw::InnerRefNamespace &ns) {
-  StringAttr expectedModuleName = {};
+  ArrayAttr expectedModuleNames = {};
+  auto checkExpectedModule = [&](Attribute name) -> LogicalResult {
+    if (!expectedModuleNames)
+      return success();
+    if (llvm::any_of(expectedModuleNames,
+                     [name](Attribute attr) { return attr == name; }))
+      return success();
+    auto diag = emitOpError() << "instance path is incorrect. Expected ";
+    size_t n = expectedModuleNames.size();
+    if (n != 1) {
+      diag << "one of ";
+    }
+    for (size_t i = 0; i < n; ++i) {
+      if (i != 0)
+        diag << ((i + 1 == n) ? " or " : ", ");
+      diag << expectedModuleNames[i].cast<StringAttr>();
+    }
+    diag << ". Instead found: " << name;
+    return diag;
+  };
+
   if (!getNamepath() || getNamepath().empty())
     return emitOpError() << "the instance path cannot be empty";
   for (unsigned i = 0, s = getNamepath().size() - 1; i < s; ++i) {
@@ -3030,17 +3200,17 @@ LogicalResult HierPathOp::verifyInnerRefs(hw::InnerRefNamespace &ns) {
              << "the instance path can only contain inner sym reference"
              << ", only the leaf can refer to a module symbol";
 
-    if (expectedModuleName && expectedModuleName != innerRef.getModule())
-      return emitOpError() << "instance path is incorrect. Expected module: "
-                           << expectedModuleName
-                           << " instead found: " << innerRef.getModule();
+    if (failed(checkExpectedModule(innerRef.getModule())))
+      return failure();
+
     auto instOp = ns.lookupOp<igraph::InstanceOpInterface>(innerRef);
     if (!instOp)
       return emitOpError() << " module: " << innerRef.getModule()
                            << " does not contain any instance with symbol: "
                            << innerRef.getName();
-    expectedModuleName = instOp.getReferencedModuleNameAttr();
+    expectedModuleNames = instOp.getReferencedModuleNamesAttr();
   }
+
   // The instance path has been verified. Now verify the last element.
   auto leafRef = getNamepath()[getNamepath().size() - 1];
   if (auto innerRef = leafRef.dyn_cast<hw::InnerRefAttr>()) {
@@ -3048,17 +3218,11 @@ LogicalResult HierPathOp::verifyInnerRefs(hw::InnerRefNamespace &ns) {
       return emitOpError() << " operation with symbol: " << innerRef
                            << " was not found ";
     }
-    if (expectedModuleName && expectedModuleName != innerRef.getModule())
-      return emitOpError() << "instance path is incorrect. Expected module: "
-                           << expectedModuleName
-                           << " instead found: " << innerRef.getModule();
-  } else if (expectedModuleName &&
-             expectedModuleName !=
-                 leafRef.cast<FlatSymbolRefAttr>().getAttr()) {
-    // This is the case when the nla is applied to a module.
-    return emitOpError() << "instance path is incorrect. Expected module: "
-                         << expectedModuleName << " instead found: "
-                         << leafRef.cast<FlatSymbolRefAttr>().getAttr();
+    if (failed(checkExpectedModule(innerRef.getModule())))
+      return failure();
+  } else if (failed(checkExpectedModule(
+                 leafRef.cast<FlatSymbolRefAttr>().getAttr()))) {
+    return failure();
   }
   return success();
 }

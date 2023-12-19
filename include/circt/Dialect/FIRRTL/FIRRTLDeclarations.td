@@ -37,13 +37,16 @@ class ReferableDeclOp<string mnemonic, list<Trait> traits = []> :
 class HardwareDeclOp<string mnemonic, list <Trait> traits = []> :
   ReferableDeclOp<mnemonic, traits # [
     ParentOneOf<[
-      "firrtl::FModuleOp", "firrtl::GroupOp",
+      "firrtl::FModuleOp", "firrtl::LayerBlockOp",
       "firrtl::WhenOp", "firrtl::MatchOp"]>]> {}
 
 def InstanceOp : HardwareDeclOp<"instance", [
+    DeclareOpInterfaceMethods<FInstanceLike>,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
-    DeclareOpInterfaceMethods<InstanceGraphInstanceOpInterface, ["getModuleName"]>,
-    ]> {
+    DeclareOpInterfaceMethods<InstanceGraphInstanceOpInterface, [
+      "getModuleName"
+    ]>,
+  ]> {
   let summary = "Instantiate an instance of a module";
   let description = [{
     This represents an instance of a module.  The results are the modules inputs
@@ -95,7 +98,17 @@ def InstanceOp : HardwareDeclOp<"instance", [
                    CArg<"ArrayRef<Attribute>", "{}">:$annotations,
                    CArg<"ArrayRef<Attribute>", "{}">:$portAnnotations,
                    CArg<"bool","false">:$lowerToBind,
-                   CArg<"StringAttr", "StringAttr()">:$innerSym)>
+                   CArg<"hw::InnerSymAttr", "hw::InnerSymAttr()">:$innerSym)>,
+
+    /// Constructor when you have a port info list in hand.
+    OpBuilder<(ins "ArrayRef<PortInfo>":$ports,
+                   "::mlir::StringRef":$moduleName,
+                   "mlir::StringRef":$name,
+                   CArg<"NameKindEnum", "NameKindEnum::DroppableName">:$nameKind,
+                   CArg<"ArrayRef<Attribute>", "{}">:$annotations,
+                   CArg<"bool","false">:$lowerToBind,
+                   CArg<"hw::InnerSymAttr", "hw::InnerSymAttr()">:$innerSym)>
+
   ];
 
   let extraClassDeclaration = [{
@@ -127,11 +140,99 @@ def InstanceOp : HardwareDeclOp<"instance", [
     InstanceOp cloneAndInsertPorts(ArrayRef<std::pair<unsigned, PortInfo>> ports);
 
     //===------------------------------------------------------------------===//
+    // Instance graph methods
+    //===------------------------------------------------------------------===//
+
+    // Quick lookup of the referenced module using the instance graph.
+    template <typename T = ::circt::igraph::ModuleOpInterface>
+    T getReferencedModule(::circt::igraph::InstanceGraph &instanceGraph) {
+      auto moduleNameAttr = getModuleNameAttr().getAttr();
+      auto *node =  instanceGraph.lookup(moduleNameAttr);
+      if (!node)
+        return nullptr;
+      Operation *moduleOp = node->getModule();
+      return dyn_cast_or_null<T>(moduleOp);
+    }
+
+    //===------------------------------------------------------------------===//
     // PortList Methods
     //===------------------------------------------------------------------===//
     SmallVector<::circt::hw::PortInfo> getPortList();
   }];
 }
+
+def InstanceChoiceOp : HardwareDeclOp<"instance_choice", [
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>
+  ]> {
+  let summary = "Creates an instance of a module based on a option";
+
+  let description = [{
+    The instance choice operation creates an instance choosing the target based
+    on the value of an option if one is specified, instantiating a default
+    target otherwise.
+
+    The port lists of all instance targets must match exactly.
+
+    Examples:
+    ```mlir
+    %0 = firrtl.instance_choice foo @Foo alternatives @Opt { @FPGA -> @FPGAFoo }
+      (in io: !firrtl.uint)
+    ```
+  }];
+
+  let arguments = (ins FlatSymbolRefArrayAttr:$moduleNames,
+                       SymbolRefArrayAttr:$caseNames,
+                       StrAttr:$name, NameKindAttr:$nameKind,
+                       APIntAttr:$portDirections, StrArrayAttr:$portNames,
+                       AnnotationArrayAttr:$annotations,
+                       PortAnnotationsAttr:$portAnnotations,
+                       OptionalAttr<InnerSymAttr>:$inner_sym);
+
+  let results = (outs Variadic<AnyType>:$results);
+
+  let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
+
+  let extraClassDeclaration = [{
+    /// Return the port direction for the specified result number.
+    Direction getPortDirection(size_t resultNo) {
+      return direction::get(getPortDirections()[resultNo]);
+    }
+
+    /// Return the port name for the specified result number.
+    StringAttr getPortName(size_t resultNo) {
+      return cast<StringAttr>(getPortNames()[resultNo]);
+    }
+
+    /// Return the default target attribute.
+    FlatSymbolRefAttr getDefaultTargetAttr() {
+      return getModuleNamesAttr()[0].cast<FlatSymbolRefAttr>();
+    }
+
+    /// Return the name of the option group.
+    StringAttr getOptionNameAttr() {
+      return getCaseNames()[0].cast<SymbolRefAttr>().getRootReference();
+    }
+
+    /// Return the target for an option or the default if none specified.
+    FlatSymbolRefAttr getTargetOrDefaultAttr(OptionCaseOp option);
+
+    /// Return the list of case-module mappings.
+    SmallVector<std::pair<SymbolRefAttr, FlatSymbolRefAttr>, 1> 
+    getTargetChoices();
+  }];
+
+  let builders = [
+    OpBuilder<(ins "FModuleLike":$defaultModule,
+                   "ArrayRef<std::pair<OptionCaseOp, FModuleLike>>":$cases,
+                   "mlir::StringRef":$name,
+                   CArg<"NameKindEnum", "NameKindEnum::DroppableName">:$nameKind,
+                   CArg<"ArrayRef<Attribute>", "{}">:$annotations,
+                   CArg<"ArrayRef<Attribute>", "{}">:$portAnnotations,
+                   CArg<"StringAttr", "StringAttr()">:$innerSym)>
+  ];
+}
+
 
 def MemOp : HardwareDeclOp<"mem"> {
   let summary = "Define a new mem";
@@ -594,10 +695,13 @@ def ClockGateIntrinsicOp : FIRRTLOp<"int.clock_gate", [Pure]> {
 def ObjectOp :  FIRRTLOp<"object", [
     ParentOneOf<["firrtl::FModuleOp, firrtl::ClassOp"]>,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
-    DeclareOpInterfaceMethods<InstanceGraphInstanceOpInterface, [
+    DeclareOpInterfaceMethods<FInstanceLike, [
+      "getReferencedOperation",
       "getReferencedModuleName",
       "getReferencedModuleNameAttr",
-      "getReferencedModule"
+    ]>,
+    DeclareOpInterfaceMethods<InstanceGraphInstanceOpInterface, [
+      "getReferencedModuleSlow"
     ]>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, [
       "getAsmResultNames"
@@ -622,7 +726,7 @@ def ObjectOp :  FIRRTLOp<"object", [
   let extraClassDeclaration = [{
     /// Lookup the module or extmodule for the symbol.  This returns null on
     /// invalid IR.
-    ClassLike getReferencedClass(SymbolTable& symbolTable);
+    ClassLike getReferencedClass(const SymbolTable &symbolTable);
 
     StringAttr getClassNameAttr();
     StringRef getClassName();

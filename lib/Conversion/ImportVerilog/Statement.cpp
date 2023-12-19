@@ -33,24 +33,24 @@ LogicalResult Context::visitConditionalStmt(
   // So the following code is for handling `if (expression)`.
   if (!cond.getType().isa<mlir::IntegerType>()) {
     auto zeroValue =
-        rootBuilder.create<moore::ConstantOp>(loc, convertType(*type), 0);
-    cond = rootBuilder.create<moore::InEqualityOp>(loc, cond, zeroValue);
+        builder.create<moore::ConstantOp>(loc, convertType(*type), 0);
+    cond = builder.create<moore::InEqualityOp>(loc, cond, zeroValue);
   }
 
-  auto ifOp = rootBuilder.create<mlir::scf::IfOp>(
-      loc, cond,
-      [&](OpBuilder &builder, Location loc) {
-        convertStatement(&conditionalStmt->ifTrue);
-        builder.create<mlir::scf::YieldOp>(loc);
-      },
-      [&](OpBuilder &builder, Location loc) {
-        if (&conditionalStmt->ifFalse && conditionalStmt->ifFalse) {
-          convertStatement(conditionalStmt->ifFalse);
-          builder.create<mlir::scf::YieldOp>(loc);
-        }
-      });
-  if (ifOp.getElseRegion().getOps().empty())
-    ifOp.elseBlock()->erase();
+  auto ifOp = builder.create<mlir::scf::IfOp>(
+      loc, cond, conditionalStmt->ifFalse != nullptr);
+  OpBuilder::InsertionGuard guard(builder);
+
+  builder.setInsertionPoint(ifOp.thenYield());
+  if (failed(convertStatement(&conditionalStmt->ifTrue)))
+    return failure();
+
+  if (conditionalStmt->ifFalse) {
+    builder.setInsertionPoint(ifOp.elseYield());
+    if (failed(convertStatement(conditionalStmt->ifFalse)))
+      return failure();
+  }
+
   return success();
 }
 
@@ -59,17 +59,18 @@ LogicalResult
 Context::convertStatement(const slang::ast::Statement *statement) {
   auto loc = convertLocation(statement->sourceRange.start());
   switch (statement->kind) {
+  case slang::ast::StatementKind::Empty:
+    return success();
   case slang::ast::StatementKind::List:
-    for (auto *stmt : statement->as<slang::ast::StatementList>().list) {
-      convertStatement(stmt);
-    }
+    for (auto *stmt : statement->as<slang::ast::StatementList>().list)
+      if (failed(convertStatement(stmt)))
+        return failure();
     break;
   case slang::ast::StatementKind::Block:
-    convertStatement(&statement->as<slang::ast::BlockStatement>().body);
-    break;
+    return convertStatement(&statement->as<slang::ast::BlockStatement>().body);
   case slang::ast::StatementKind::ExpressionStatement:
-    visitExpression(&statement->as<slang::ast::ExpressionStatement>().expr);
-    break;
+    return success(visitExpression(
+        &statement->as<slang::ast::ExpressionStatement>().expr));
   case slang::ast::StatementKind::VariableDeclaration:
     return mlir::emitError(loc, "unsupported statement: variable declaration");
   case slang::ast::StatementKind::Return:
@@ -95,15 +96,19 @@ Context::convertStatement(const slang::ast::Statement *statement) {
   case slang::ast::StatementKind::ForeverLoop:
     return mlir::emitError(loc, "unsupported statement: forever loop");
   case slang::ast::StatementKind::Timed:
-    visitTimingControl(&statement->as<slang::ast::TimedStatement>().timing);
-    convertStatement(&statement->as<slang::ast::TimedStatement>().stmt);
+    if (failed(visitTimingControl(
+            &statement->as<slang::ast::TimedStatement>().timing)))
+      return failure();
+    if (failed(convertStatement(
+            &statement->as<slang::ast::TimedStatement>().stmt)))
+      return failure();
     break;
   case slang::ast::StatementKind::ImmediateAssertion:
     return mlir::emitError(loc, "unsupported statement: immediate assertion");
   case slang::ast::StatementKind::ConcurrentAssertion:
     return mlir::emitError(loc, "unsupported statement: concurrent assertion");
   case slang::ast::StatementKind::DisableFork:
-    return mlir::emitError(loc, "unsupported statement: diable fork");
+    return mlir::emitError(loc, "unsupported statement: disable fork");
   case slang::ast::StatementKind::Wait:
     return mlir::emitError(loc, "unsupported statement: wait");
   case slang::ast::StatementKind::WaitFork:
@@ -113,10 +118,8 @@ Context::convertStatement(const slang::ast::Statement *statement) {
   case slang::ast::StatementKind::EventTrigger:
     return mlir::emitError(loc, "unsupported statement: event trigger");
   case slang::ast::StatementKind::ProceduralAssign:
-    visitExpression(
-        &statement->as<slang::ast::ProceduralAssignStatement>().assignment);
-    break;
-    // return mlir::emitError(loc, "unsupported statement: procedural assign");
+    return success(visitExpression(
+        &statement->as<slang::ast::ProceduralAssignStatement>().assignment));
   case slang::ast::StatementKind::ProceduralDeassign:
     return mlir::emitError(loc, "unsupported statement: procedural deassign");
   case slang::ast::StatementKind::RandCase:
@@ -124,10 +127,11 @@ Context::convertStatement(const slang::ast::Statement *statement) {
   case slang::ast::StatementKind::RandSequence:
     return mlir::emitError(loc, "unsupported statement: rand sequence");
   case slang::ast::StatementKind::Conditional:
-    visitConditionalStmt(&statement->as<slang::ast::ConditionalStatement>());
-    break;
+    return visitConditionalStmt(
+        &statement->as<slang::ast::ConditionalStatement>());
   default:
-    mlir::emitRemark(loc, "unsupported statement");
+    mlir::emitRemark(loc, "unsupported statement: ")
+        << slang::ast::toString(statement->kind);
     return failure();
   }
 

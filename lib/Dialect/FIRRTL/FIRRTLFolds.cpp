@@ -1883,6 +1883,46 @@ LogicalResult AttachOp::canonicalize(AttachOp op, PatternRewriter &rewriter) {
   return failure();
 }
 
+/// Replaces the given op with the contents of the given single-block region.
+static void replaceOpWithRegion(PatternRewriter &rewriter, Operation *op,
+                                Region &region) {
+  assert(llvm::hasSingleElement(region) && "expected single-region block");
+  rewriter.inlineBlockBefore(&region.front(), op, {});
+}
+
+LogicalResult WhenOp::canonicalize(WhenOp op, PatternRewriter &rewriter) {
+  if (auto constant = op.getCondition().getDefiningOp<firrtl::ConstantOp>()) {
+    if (constant.getValue().isAllOnes())
+      replaceOpWithRegion(rewriter, op, op.getThenRegion());
+    else if (op.hasElseRegion() && !op.getElseRegion().empty())
+      replaceOpWithRegion(rewriter, op, op.getElseRegion());
+
+    rewriter.eraseOp(op);
+
+    return success();
+  }
+
+  // Erase empty if-else block.
+  if (!op.getThenBlock().empty() && op.hasElseRegion() &&
+      op.getElseBlock().empty()) {
+    rewriter.eraseBlock(&op.getElseBlock());
+    return success();
+  }
+
+  // Erase empty whens.
+
+  // If there is stuff in the then block, leave this operation alone.
+  if (!op.getThenBlock().empty())
+    return failure();
+
+  // If not and there is no else, then this operation is just useless.
+  if (!op.hasElseRegion() || op.getElseBlock().empty()) {
+    rewriter.eraseOp(op);
+    return success();
+  }
+  return failure();
+}
+
 namespace {
 // Remove private nodes.  If they have an interesting names, move the name to
 // the source expression.
@@ -2368,7 +2408,8 @@ struct FoldZeroWidthMemory : public mlir::RewritePattern {
     if (hasDontTouch(mem))
       return failure();
 
-    if (mem.getDataType().getBitWidthOrSentinel() != 0)
+    if (!firrtl::type_isa<IntType>(mem.getDataType()) ||
+        mem.getDataType().getBitWidthOrSentinel() != 0)
       return failure();
 
     // Make sure are users are safe to replace
@@ -2382,8 +2423,17 @@ struct FoldZeroWidthMemory : public mlir::RewritePattern {
     for (auto port : op->getResults()) {
       for (auto *user : llvm::make_early_inc_range(port.getUsers())) {
         SubfieldOp sfop = cast<SubfieldOp>(user);
-        replaceOpWithNewOpAndCopyName<WireOp>(rewriter, sfop,
-                                              sfop.getResult().getType());
+        StringRef fieldName = sfop.getFieldName();
+        auto wire = replaceOpWithNewOpAndCopyName<WireOp>(
+                        rewriter, sfop, sfop.getResult().getType())
+                        .getResult();
+        if (fieldName.ends_with("data")) {
+          // Make sure to write data ports.
+          auto zero = rewriter.create<firrtl::ConstantOp>(
+              wire.getLoc(), firrtl::type_cast<IntType>(wire.getType()),
+              APInt::getZero(0));
+          rewriter.create<StrictConnectOp>(wire.getLoc(), wire, zero);
+        }
       }
     }
     rewriter.eraseOp(op);

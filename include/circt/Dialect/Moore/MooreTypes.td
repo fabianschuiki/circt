@@ -37,16 +37,4 @@ def SimpleBitVectorType : MooreType<CPred<[{
 def MooreIntType : MooreType<CPred<"$_self.isa<moore::IntType>()">,
   "an SystemVerilog int", "moore::IntType">;
 
-//===----------------------------------------------------------------------===//
-// LValue / RValue predicates
-//===----------------------------------------------------------------------===//
-
-class MooreLValueTypeOf<list<Type> allowedTypes>
-  : ContainerType<AnyTypeOf<allowedTypes>,
-    CPred<"$_self.isa<moore::LValueType>()">,
-    "$_self.cast<moore::LValueType>().getNestedType()", "Moore LValue type">;
-
-def MooreLValueType : MooreLValueTypeOf<[AnyType]>;
-def MooreRValueType : AnyTypeOf<[UnpackedType]>;
-
 #endif // CIRCT_DIALECT_MOORE_MOORETYPES

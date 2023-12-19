@@ -93,6 +93,24 @@ def LowerFIRRTLTypes : Pass<"firrtl-lower-types", "firrtl::CircuitOp"> {
   let dependentDialects = ["hw::HWDialect"];
 }
 
+def LowerSignatures : Pass<"firrtl-lower-signatures", "firrtl::CircuitOp"> {
+  let summary = "Lower FIRRTL module signatures";
+  let description = [{
+    Lower aggregate FIRRTL types in Modules as indicated by the calling
+    convention.
+  }];
+  let constructor = "circt::firrtl::createLowerSignaturesPass()";
+}
+
+def PassiveWires : Pass<"firrtl-passive-wires", "firrtl::FModuleOp"> {
+  let summary = "Make FIRRTL wires have passive type";
+  let description = [{
+    Eliminate flips from aggregate types on wires.
+  }];
+  let constructor = "circt::firrtl::createPassiveWiresPass()";
+}
+
+
 def IMConstProp : Pass<"firrtl-imconstprop", "firrtl::CircuitOp"> {
   let summary = "Intermodule constant propagation and dead code elimination";
   let description = [{
@@ -599,8 +617,10 @@ def DropName : Pass<"firrtl-drop-names", "firrtl::FModuleOp"> {
            "PreserveValues::None",
            "specify the values which can be optimized away", [{
             ::llvm::cl::values(
+              clEnumValN(PreserveValues::Strip, "strip",
+                "Strip all names. No name is preserved"),
               clEnumValN(PreserveValues::None, "none",
-                "Preserve no values"),
+                "Preserve no named values. Names could be preserved by best-effort unlike `strip`"),
               clEnumValN(PreserveValues::Named, "named",
                 "Preserve values with meaningful names"),
               clEnumValN(PreserveValues::All, "all",
@@ -646,6 +666,10 @@ def LowerIntrinsics : Pass<"firrtl-lower-intrinsics", "firrtl::CircuitOp"> {
     intmodule to their implementation or op.
   }];
   let constructor = "circt::firrtl::createLowerIntrinsicsPass()";
+  let options = [
+    Option<"fixupEICGWrapper", "fixup-eicg-wrapper", "bool", "false",
+      "Lower `EICG_wrapper` modules into clock gate intrinsics">,
+  ];
 }
 
 def LowerOpenAggs : Pass<"firrtl-lower-open-aggs", "firrtl::CircuitOp"> {
@@ -735,23 +759,34 @@ def LowerClasses : Pass<"firrtl-lower-classes", "firrtl::CircuitOp"> {
   let dependentDialects = ["om::OMDialect"];
 }
 
-def LowerGroups : Pass<"firrtl-lower-groups", "firrtl::CircuitOp"> {
-  let summary = "Lower optional groups to instances";
+def LowerLayers : Pass<"firrtl-lower-layers", "firrtl::CircuitOp"> {
+  let summary = "Lower layers and layer blocks to instances";
   let description = [{
-    This pass converts FIRRTL optional groups to new modules and instantiations.
-    Referenced SSA values captured by a group are converted to ports of the
-    created module.
+    This pass lowers FIRRTL layers as defined by their convention.  After this
+    pass, all layer blocks and layers are removed.
   }];
-  let constructor = "circt::firrtl::createLowerGroupsPass()";
+  let constructor = "circt::firrtl::createLowerLayersPass()";
   let dependentDialects = ["sv::SVDialect"];
 }
 
-def GroupSink : Pass<"firrtl-group-sink", "firrtl::FModuleOp"> {
-  let summary = "Sink operations into FIRRTL optional groups";
+def LayerMerge : Pass<"firrtl-layer-merge", "firrtl::FModuleOp"> {
+  let summary = "Merge layer blocks";
+  let description = [{
+    Combine all layer blocks in a module which reference the same layer
+    definition.
+  }];
+  let constructor = "::circt::firrtl::createLayerMergePass()";
+  let statistics = [
+    Statistic<"numMerged", "num-merged", "Number of layers merged">,
+  ];
+}
+
+def LayerSink : Pass<"firrtl-layer-sink", "firrtl::FModuleOp"> {
+  let summary = "Sink operations into layer blocks";
   let description = [{
 
   }];
-  let constructor = "::circt::firrtl::createGroupSinkPass()";
+  let constructor = "::circt::firrtl::createLayerSinkPass()";
   let statistics = [
     Statistic<"numSunk", "num-sunk", "Number of operations sunk">,
   ];
@@ -788,6 +823,50 @@ def ProbeDCE : Pass<"firrtl-probe-dce", "firrtl::CircuitOp"> {
   let statistics = [
     Statistic<"numErasedPorts", "num-erased-ports", "Number of ports erased">,
     Statistic<"numErasedOps", "num-erased-ops", "Number of operations erased">
+  ];
+}
+
+def MaterializeDebugInfo :
+    Pass<"firrtl-materialize-debug-info", "firrtl::FModuleOp"> {
+  let summary = "Generate debug ops to track FIRRTL values";
+  let description = [{
+    This pass creates debug ops to track FIRRTL-level ports, nodes, wires,
+    registers, and instances throughout the pipeline. The `DebugInfo` analysis
+    can then be used at a later point in the pipeline to obtain a source
+    language view into the lowered IR.
+  }];
+  let constructor = "circt::firrtl::createMaterializeDebugInfoPass()";
+  let dependentDialects = ["debug::DebugDialect"];
+}
+
+def Lint :
+    Pass<"firrtl-lint", "firrtl::FModuleOp"> {
+  let summary = "An analysis pass to detect static simulation failures.";
+  let description = [{
+    This pass detects operations that will trivially fail any simulation.
+    Currently it detects assertions whose predicate condition can be statically
+    inferred to be false. The pass emits error on such failing ops.
+  }];
+  let constructor = "circt::firrtl::createLintingPass()";
+}
+
+def SpecializeOption :
+    Pass<"firrtl-specialize-option", "firrtl::CircuitOp"> {
+  let summary = "Specialize a configurable design for a given option.";
+  let description = [{
+    If the design has option groups, instead of preserving the information
+    up to the emitted SystemVerilog, this pass specializes it early on for a
+    given choice.
+  }];
+  let constructor = "circt::firrtl::createSpecializeOptionPass()";
+
+  let options = [
+    ListOption<"select", "select", "std::string", 
+               "Options to specialize, in option=case format">,
+  ];
+  let statistics = [
+    Statistic<"numInstances", "num-instances",
+      "Number of instances specialized">
   ];
 }
 

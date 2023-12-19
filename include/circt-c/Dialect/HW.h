@@ -1,16 +1,8 @@
-//===-- circt-c/Dialect/HW.h - C API for HW dialect ---------------*- C -*-===//
+//===- HW.h - C interface for the HW dialect ----------------------*- C -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
-//===----------------------------------------------------------------------===//
-//
-// This header declares the C interface for registering and accessing the
-// HW dialect. A dialect should be registered with a context to make it
-// available to users of the context. These users must load the dialect
-// before using any of its attributes, operations or types. Parser and pass
-// manager can load registered dialects automatically.
 //
 //===----------------------------------------------------------------------===//
 
@@ -132,8 +124,12 @@ MLIR_CAPI_EXPORTED MlirType hwParamIntTypeGet(MlirAttribute parameter);
 
 MLIR_CAPI_EXPORTED MlirAttribute hwParamIntTypeGetWidthAttr(MlirType);
 
+MLIR_CAPI_EXPORTED MlirAttribute
+hwStructTypeGetFieldIndex(MlirType structType, MlirStringRef fieldName);
+
 MLIR_CAPI_EXPORTED HWStructFieldInfo
 hwStructTypeGetFieldNum(MlirType structType, unsigned idx);
+
 MLIR_CAPI_EXPORTED intptr_t hwStructTypeGetNumFields(MlirType structType);
 
 MLIR_CAPI_EXPORTED MlirType hwTypeAliasTypeGet(MlirStringRef scope,

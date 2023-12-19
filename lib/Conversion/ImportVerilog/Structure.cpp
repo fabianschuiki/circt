@@ -20,6 +20,25 @@
 using namespace circt;
 using namespace ImportVerilog;
 
+static moore::ProcedureKind
+convertProcedureKind(slang::ast::ProceduralBlockKind kind) {
+  switch (kind) {
+  case slang::ast::ProceduralBlockKind::Always:
+    return moore::ProcedureKind::Always;
+  case slang::ast::ProceduralBlockKind::AlwaysComb:
+    return moore::ProcedureKind::AlwaysComb;
+  case slang::ast::ProceduralBlockKind::AlwaysLatch:
+    return moore::ProcedureKind::AlwaysLatch;
+  case slang::ast::ProceduralBlockKind::AlwaysFF:
+    return moore::ProcedureKind::AlwaysFF;
+  case slang::ast::ProceduralBlockKind::Initial:
+    return moore::ProcedureKind::Initial;
+  case slang::ast::ProceduralBlockKind::Final:
+    return moore::ProcedureKind::Final;
+  }
+  llvm_unreachable("all procedure kinds handled");
+}
+
 LogicalResult
 Context::convertCompilation(slang::ast::Compilation &compilation) {
   auto &root = compilation.getRoot();
@@ -31,8 +50,13 @@ Context::convertCompilation(slang::ast::Compilation &compilation) {
       LLVM_DEBUG(llvm::dbgs() << "Converting symbol " << member.name << "\n");
 
   // Prime the root definition worklist by adding all the top-level modules to
-  // it.
-  for (auto *inst : root.topInstances)
+  // it. Explicitly sort the instances by their location in the source file,
+  // such that the generated IR's order matches the source file.
+  SmallVector<const slang::ast::InstanceSymbol *> topInstances;
+  topInstances.assign(root.topInstances.begin(), root.topInstances.end());
+  llvm::sort(topInstances,
+             [&](auto *a, auto *b) { return a->location < b->location; });
+  for (auto *inst : topInstances)
     convertModuleHeader(&inst->body);
 
   // Convert all the root module definitions.
@@ -104,8 +128,8 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
                           << "\n");
   auto *moduleOp = moduleOps.lookup(module);
   assert(moduleOp);
-  auto builder =
-      OpBuilder::atBlockEnd(&cast<moore::SVModuleOp>(moduleOp).getBodyBlock());
+  builder.setInsertionPointToEnd(
+      &cast<moore::SVModuleOp>(moduleOp).getBodyBlock());
 
   // Create a new scope in a module. When the processing of a module is
   // terminated, the scope is destroyed and the mappings created in this scope
@@ -127,6 +151,10 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
         member.kind == slang::ast::SymbolKind::TransparentMember)
       continue;
 
+    // Skip semicolons.
+    if (member.kind == slang::ast::SymbolKind::EmptyMember)
+      continue;
+
     // Handle instances.
     if (auto *instAst = member.as_if<slang::ast::InstanceSymbol>()) {
       auto *targetModule = convertModuleHeader(&instAst->body);
@@ -143,17 +171,18 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto loweredType = convertType(*varAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      rootBuilder.setInsertionPointToEnd(builder.getInsertionBlock());
-      Value varOp = rootBuilder.create<moore::VariableOp>(
-          convertLocation(varAst->location), loweredType,
-          builder.getStringAttr(varAst->name));
+
+      Value initial;
       if (varAst->getInitializer()) {
-        Value value = visitExpression(varAst->getInitializer());
-        if (value.getType() != loweredType)
-          value =
-              rootBuilder.create<moore::ConversionOp>(loc, loweredType, value);
-        rootBuilder.create<moore::BPAssignOp>(loc, varOp, value);
+        initial = visitExpression(varAst->getInitializer());
+        if (initial.getType() != loweredType)
+          initial =
+              builder.create<moore::ConversionOp>(loc, loweredType, initial);
       }
+
+      auto varOp = builder.create<moore::VariableOp>(
+          convertLocation(varAst->location), loweredType,
+          builder.getStringAttr(varAst->name), initial);
       varSymbolTable.insert(varAst->name, varOp);
       continue;
     }
@@ -163,18 +192,19 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto loweredType = convertType(*netAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      rootBuilder.setInsertionPointToEnd(builder.getInsertionBlock());
-      Value netOp = rootBuilder.create<moore::NetOp>(
+
+      Value assignment;
+      if (netAst->getInitializer()) {
+        assignment = visitExpression(netAst->getInitializer());
+        if (assignment.getType() != loweredType)
+          assignment =
+              builder.create<moore::ConversionOp>(loc, loweredType, assignment);
+      }
+
+      auto netOp = builder.create<moore::NetOp>(
           convertLocation(netAst->location), loweredType,
           builder.getStringAttr(netAst->name),
-          builder.getStringAttr(netAst->netType.name));
-      if (netAst->getInitializer()) {
-        Value value = visitExpression(netAst->getInitializer());
-        if (value.getType() != loweredType)
-          value =
-              rootBuilder.create<moore::ConversionOp>(loc, loweredType, value);
-        rootBuilder.create<moore::CAssignOp>(loc, netOp, value);
-      }
+          builder.getStringAttr(netAst->netType.name), assignment);
       varSymbolTable.insert(netAst->name, netOp);
       continue;
     }
@@ -193,7 +223,6 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
 
     // Handle AssignOp.
     if (auto *assignAst = member.as_if<slang::ast::ContinuousAssignSymbol>()) {
-      rootBuilder.setInsertionPointToEnd(builder.getBlock());
       visitAssignmentExpr(
           &assignAst->getAssignment().as<slang::ast::AssignmentExpression>());
       continue;
@@ -202,12 +231,12 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     // Handle ProceduralBlock.
     if (auto *procAst = member.as_if<slang::ast::ProceduralBlockSymbol>()) {
       auto loc = convertLocation(procAst->location);
-      rootBuilder.setInsertionPointToEnd(
-          &builder
-               .create<moore::ProcedureOp>(
-                   loc, static_cast<moore::Procedure>(procAst->procedureKind))
-               .getBodyBlock());
-      convertStatement(&procAst->getBody());
+      auto procOp = builder.create<moore::ProcedureOp>(
+          loc, convertProcedureKind(procAst->procedureKind));
+      OpBuilder::InsertionGuard guard(builder);
+      builder.setInsertionPointToEnd(&procOp.getBodyBlock());
+      if (failed(convertStatement(&procAst->getBody())))
+        return failure();
       continue;
     }
 

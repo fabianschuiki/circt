@@ -47,6 +47,12 @@ void circt::firrtl::emitConnect(ImplicitLocOpBuilder &builder, Value dst,
     return;
   }
 
+  // More special connects
+  if (isa<AnalogType>(dstType)) {
+    builder.create<AttachOp>(ArrayRef{dst, src});
+    return;
+  }
+
   // If the types are the exact same we can just connect them.
   if (dstType == srcType && dstType.isPassive() &&
       !dstType.hasUninferredWidth()) {
@@ -689,10 +695,10 @@ Value circt::firrtl::getValueByFieldID(ImplicitLocOpBuilder builder,
 
 /// Walk leaf ground types in the `firrtlType` and apply the function `fn`.
 /// The first argument of `fn` is field ID, and the second argument is a
-/// leaf ground type.
+/// leaf ground type and the third argument is a bool to indicate flip.
 void circt::firrtl::walkGroundTypes(
     FIRRTLType firrtlType,
-    llvm::function_ref<void(uint64_t, FIRRTLBaseType)> fn) {
+    llvm::function_ref<void(uint64_t, FIRRTLBaseType, bool)> fn) {
   auto type = getBaseType(firrtlType);
 
   // If this is not a base type, return.
@@ -701,36 +707,37 @@ void circt::firrtl::walkGroundTypes(
 
   // If this is a ground type, don't call recursive functions.
   if (type.isGround())
-    return fn(0, type);
+    return fn(0, type, false);
 
   uint64_t fieldID = 0;
-  auto recurse = [&](auto &&f, FIRRTLBaseType type) -> void {
+  auto recurse = [&](auto &&f, FIRRTLBaseType type, bool isFlip) -> void {
     FIRRTLTypeSwitch<FIRRTLBaseType>(type)
         .Case<BundleType>([&](BundleType bundle) {
           for (size_t i = 0, e = bundle.getNumElements(); i < e; ++i) {
             fieldID++;
-            f(f, bundle.getElementType(i));
+            f(f, bundle.getElementType(i),
+              isFlip ^ bundle.getElement(i).isFlip);
           }
         })
         .template Case<FVectorType>([&](FVectorType vector) {
           for (size_t i = 0, e = vector.getNumElements(); i < e; ++i) {
             fieldID++;
-            f(f, vector.getElementType());
+            f(f, vector.getElementType(), isFlip);
           }
         })
         .template Case<FEnumType>([&](FEnumType fenum) {
           for (size_t i = 0, e = fenum.getNumElements(); i < e; ++i) {
             fieldID++;
-            f(f, fenum.getElementType(i));
+            f(f, fenum.getElementType(i), isFlip);
           }
         })
         .Default([&](FIRRTLBaseType groundType) {
           assert(groundType.isGround() &&
                  "only ground types are expected here");
-          fn(fieldID, groundType);
+          fn(fieldID, groundType, isFlip);
         });
   };
-  recurse(recurse, type);
+  recurse(recurse, type, false);
 }
 
 /// Return the inner sym target for the specified value and fieldID.

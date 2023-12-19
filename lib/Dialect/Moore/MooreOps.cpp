@@ -53,22 +53,6 @@ void NetOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 }
 
 //===----------------------------------------------------------------------===//
-// ProcedureOp
-//===----------------------------------------------------------------------===//
-
-void ProcedureOp::build(OpBuilder &builder, OperationState &result,
-                        Procedure procedure, std::function<void()> bodyCtor) {
-  OpBuilder::InsertionGuard guard(builder);
-
-  result.addAttribute(
-      "procedure", builder.getI32IntegerAttr(static_cast<int32_t>(procedure)));
-  builder.createBlock(result.addRegion());
-
-  if (bodyCtor)
-    bodyCtor();
-}
-
-//===----------------------------------------------------------------------===//
 // Type Inference
 //===----------------------------------------------------------------------===//
 
@@ -87,22 +71,6 @@ LogicalResult ConcatOp::inferReturnTypes(
   results.push_back(
       SimpleBitVectorType(domain, Sign::Unsigned, size).getType(context));
   return success();
-}
-
-//===----------------------------------------------------------------------===//
-// Custom LValue parser and printer
-//===----------------------------------------------------------------------===//
-
-static ParseResult parseLValueType(OpAsmParser &p, Type &lValueType) {
-  Type type;
-  if (p.parseType(type))
-    return p.emitError(p.getCurrentLocation(), "expected type");
-  lValueType = LValueType::get(type);
-  return success();
-}
-
-static void printLValueType(OpAsmPrinter &p, Operation *, Type lValueType) {
-  p.printType(lValueType.cast<LValueType>().getNestedType());
 }
 
 //===----------------------------------------------------------------------===//

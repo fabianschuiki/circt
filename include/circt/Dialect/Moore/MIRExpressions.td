@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+include "circt/Dialect/Moore/MooreTypes.td"
+include "mlir/IR/EnumAttr.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
 // Base class for binary operators.
@@ -56,7 +58,7 @@ def ConstantOp : MIROp<"constant", [Pure]> {
   let summary = "A constant value";
 
   let arguments = (ins I32Attr:$value);
-  let results = (outs MooreRValueType:$result);
+  let results = (outs UnpackedType:$result);
   let assemblyFormat = "$value attr-dict `:` qualified(type($result))";
 }
 

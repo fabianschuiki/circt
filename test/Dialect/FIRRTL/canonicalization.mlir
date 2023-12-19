@@ -2845,6 +2845,16 @@ firrtl.module @CrashAllUnusedPorts() {
   firrtl.strictconnect %26, %c0_ui1 : !firrtl.uint<1>
 }
 
+// CHECK-LABEL: firrtl.module @Issue6237
+// CHECK-NEXT:    %c0_ui0 = firrtl.constant 0 : !firrtl.uint<0>
+// CHECK-NEXT:    firrtl.strictconnect %out, %c0_ui0 : !firrtl.uint<0>
+firrtl.module @Issue6237(out %out: !firrtl.uint<0>) {
+  %foo, %bar = firrtl.mem  Undefined  {depth = 3 : i64, groupID = 4 : ui32, name = "whatever", portNames = ["MPORT_1", "MPORT_5"], readLatency = 0 : i32, writeLatency = 1 : i32} : !firrtl.bundle<addr: uint<2>, en: uint<1>, clk: clock, data: uint<0>, mask: uint<1>>, !firrtl.bundle<addr: uint<2>, en: uint<1>, clk: clock, data flip: uint<0>>
+  %a = firrtl.subfield %bar[data] : !firrtl.bundle<addr: uint<2>, en: uint<1>, clk: clock, data flip: uint<0>>
+  firrtl.strictconnect %out, %a : !firrtl.uint<0>
+}
+
+
 // CHECK-LABEL: firrtl.module @CrashRegResetWithOneReset
 firrtl.module @CrashRegResetWithOneReset(in %clock: !firrtl.clock, in %reset: !firrtl.asyncreset, in %io_d: !firrtl.uint<1>, out %io_q: !firrtl.uint<1>, in %io_en: !firrtl.uint<1>) {
   %c1_asyncreset = firrtl.specialconstant 1 : !firrtl.asyncreset
@@ -3102,7 +3112,7 @@ firrtl.module @DonotUpdateInstanceName(in %in: !firrtl.uint<1>, out %a: !firrtl.
 }
 
 // CHECK-LABEL: @RefCastSame
-firrtl.module @RefCastSame(in %in: !firrtl.probe<uint<1>>, out %out: !firrtl.probe<uint<1>>) {
+firrtl.module private @RefCastSame(in %in: !firrtl.probe<uint<1>>, out %out: !firrtl.probe<uint<1>>) {
   // Drop no-op ref.cast's.
   // CHECK-NEXT:  firrtl.ref.define %out, %in
   // CHECK-NEXT:  }
@@ -3273,6 +3283,40 @@ firrtl.module @OMIRRemoval(in %source : !firrtl.uint<1>) {
   firrtl.strictconnect %tmp_3, %source : !firrtl.uint<1>
   // CHECK: firrtl.strictconnect %d, %tmp_3
   firrtl.strictconnect %d, %tmp_3 : !firrtl.uint<1>
+}
+
+// CHECK-LABEL: firrtl.module @Whens
+firrtl.module @Whens(in %clock: !firrtl.clock, in %a: !firrtl.uint<1>, in %reset: !firrtl.uint<1>) {
+  %true = firrtl.constant 1: !firrtl.uint<1>
+  %false = firrtl.constant 0: !firrtl.uint<1>
+
+  // Erase empty whens.
+  // CHECK-NOT: when %a
+  firrtl.when %a : !firrtl.uint<1> {
+  }
+  firrtl.when %a : !firrtl.uint<1> {
+  } else {
+  }
+  // Erase an empty else block.
+  // CHECK:      firrtl.when %reset : !firrtl.uint<1> {
+  // CHECK-NEXT:   firrtl.printf %clock, %reset, "foo!"  : !firrtl.clock, !firrtl.uint<1>
+  // CHECK-NEXT: }
+  firrtl.when %reset : !firrtl.uint<1> {
+    firrtl.printf %clock, %reset, "foo!"  : !firrtl.clock, !firrtl.uint<1>
+  } else {
+  }
+
+  // CHECK-NEXT:  firrtl.printf %clock, %reset, "bar!"  : !firrtl.clock, !firrtl.uint<1>
+  firrtl.when %false : !firrtl.uint<1> {
+  } else {
+    firrtl.printf %clock, %reset, "bar!"  : !firrtl.clock, !firrtl.uint<1>
+  }
+
+  // CHECK-NOT:  firrtl.when
+  firrtl.when %true : !firrtl.uint<1> {
+  } else {
+    firrtl.printf %clock, %reset, "baz!"  : !firrtl.clock, !firrtl.uint<1>
+  }
 }
 
 }

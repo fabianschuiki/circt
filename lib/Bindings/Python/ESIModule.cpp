@@ -8,6 +8,8 @@
 
 #include "DialectModules.h"
 
+#include "circt/Dialect/ESI/ESIDialect.h"
+
 #include "circt-c/Dialect/ESI.h"
 #include "mlir-c/Bindings/Python/Interop.h"
 
@@ -22,6 +24,8 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 namespace py = pybind11;
+
+using namespace circt::esi;
 
 //===----------------------------------------------------------------------===//
 // The main entry point into the ESI Assembly API.
@@ -114,6 +118,9 @@ void circt::python::populateDialectESISubmodule(py::module &m) {
         return circtESIListTypeGetElementType(self);
       });
 
+  py::enum_<ChannelDirection>(m, "ChannelDirection")
+      .value("TO", ChannelDirection::to)
+      .value("FROM", ChannelDirection::from);
   mlir_type_subclass(m, "BundleType", circtESITypeIsABundleType)
       .def_classmethod(
           "get",
@@ -125,7 +132,8 @@ void circt::python::populateDialectESISubmodule(py::module &m) {
                   return CirctESIBundleTypeBundleChannel{
                       mlirIdentifierGet(ctxt, mlirStringRefCreate(
                                                   name.data(), name.length())),
-                      py::cast<unsigned>(t[1]), py::cast<MlirType>(t[2])};
+                      (uint32_t)py::cast<ChannelDirection>(t[1]),
+                      py::cast<MlirType>(t[2])};
                 }));
             return cls(circtESIBundleTypeGet(ctxt, channels.size(),
                                              channels.data(), resettable));
@@ -141,8 +149,8 @@ void circt::python::populateDialectESISubmodule(py::module &m) {
               circtESIBundleTypeGetChannel(bundleType, i);
           MlirStringRef name = mlirIdentifierStr(channel.name);
           channels.push_back(py::make_tuple(py::str(name.data, name.length),
-                                            py::cast(channel.direction),
-                                            py::cast(channel.channelType)));
+                                            (ChannelDirection)channel.direction,
+                                            channel.channelType));
         }
         return channels;
       });
@@ -150,20 +158,25 @@ void circt::python::populateDialectESISubmodule(py::module &m) {
   mlir_attribute_subclass(m, "AppIDAttr", circtESIAttributeIsAnAppIDAttr)
       .def_classmethod(
           "get",
-          [](py::object cls, std::string name, uint64_t index,
+          [](py::object cls, std::string name, std::optional<uint64_t> index,
              MlirContext ctxt) {
-            return cls(circtESIAppIDAttrGet(ctxt, wrap(name), index));
+            if (index.has_value())
+              return cls(circtESIAppIDAttrGet(ctxt, wrap(name), index.value()));
+            return cls(circtESIAppIDAttrGetNoIdx(ctxt, wrap(name)));
           },
           "Create an AppID attribute", py::arg("cls"), py::arg("name"),
-          py::arg("index"), py::arg("context") = py::none())
+          py::arg("index") = py::none(), py::arg("context") = py::none())
       .def_property_readonly("name",
                              [](MlirAttribute self) {
                                llvm::StringRef name =
                                    unwrap(circtESIAppIDAttrGetName(self));
                                return std::string(name.data(), name.size());
                              })
-      .def_property_readonly("index", [](MlirAttribute self) {
-        return circtESIAppIDAttrGetIndex(self);
+      .def_property_readonly("index", [](MlirAttribute self) -> py::object {
+        uint64_t index;
+        if (circtESIAppIDAttrGetIndex(self, &index))
+          return py::cast(index);
+        return py::none();
       });
 
   mlir_attribute_subclass(m, "AppIDPathAttr",

@@ -1,12 +1,8 @@
-//===- HW.cpp - C Interface for the HW Dialect ----------------------------===//
+//===- HW.cpp - C interface for the HW dialect ----------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
-//===----------------------------------------------------------------------===//
-//
-//  Implements a C Interface for the HW Dialect
 //
 //===----------------------------------------------------------------------===//
 
@@ -144,6 +140,14 @@ MlirType hwStructTypeGet(MlirContext ctx, intptr_t numElements,
 MlirType hwStructTypeGetField(MlirType structType, MlirStringRef fieldName) {
   StructType st = unwrap(structType).cast<StructType>();
   return wrap(st.getFieldType(unwrap(fieldName)));
+}
+
+MlirAttribute hwStructTypeGetFieldIndex(MlirType structType,
+                                        MlirStringRef fieldName) {
+  StructType st = unwrap(structType).cast<StructType>();
+  if (auto idx = st.getFieldIndex(unwrap(fieldName)))
+    return wrap(IntegerAttr::get(IntegerType::get(st.getContext(), 32), *idx));
+  return wrap(UnitAttr::get(st.getContext()));
 }
 
 intptr_t hwStructTypeGetNumFields(MlirType structType) {

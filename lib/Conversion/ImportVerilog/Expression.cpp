@@ -23,7 +23,7 @@ using namespace ImportVerilog;
 Value Context::visitIntegerLiteral(
     const slang::ast::IntegerLiteral *integerLiteralExpr) {
   auto srcValue = integerLiteralExpr->getValue().as<uint32_t>().value();
-  return rootBuilder.create<moore::ConstantOp>(
+  return builder.create<moore::ConstantOp>(
       convertLocation(integerLiteralExpr->sourceRange.start()),
       convertType(*integerLiteralExpr->type), srcValue);
 }
@@ -41,33 +41,32 @@ Value Context::visitUnaryOp(const slang::ast::UnaryExpression *unaryExpr) {
 
   switch (unaryExpr->op) {
   case slang::ast::UnaryOperator::Plus:
-    return rootBuilder.create<moore::UnaryOp>(loc, moore::Unary::Plus, value);
+    return builder.create<moore::UnaryOp>(loc, moore::Unary::Plus, value);
   case slang::ast::UnaryOperator::Minus:
-    return rootBuilder.create<moore::UnaryOp>(loc, moore::Unary::Minus, value);
+    return builder.create<moore::UnaryOp>(loc, moore::Unary::Minus, value);
   case slang::ast::UnaryOperator::BitwiseNot:
-    return rootBuilder.create<moore::ReductionOp>(
-        loc, moore::Reduction::BitwiseNot, value);
+    return builder.create<moore::ReductionOp>(loc, moore::Reduction::BitwiseNot,
+                                              value);
   case slang::ast::UnaryOperator::BitwiseAnd:
-    return rootBuilder.create<moore::ReductionOp>(
-        loc, moore::Reduction::BitwiseAnd, value);
+    return builder.create<moore::ReductionOp>(loc, moore::Reduction::BitwiseAnd,
+                                              value);
   case slang::ast::UnaryOperator::BitwiseOr:
-    return rootBuilder.create<moore::ReductionOp>(
-        loc, moore::Reduction::BitwiseOr, value);
+    return builder.create<moore::ReductionOp>(loc, moore::Reduction::BitwiseOr,
+                                              value);
   case slang::ast::UnaryOperator::BitwiseXor:
-    return rootBuilder.create<moore::ReductionOp>(
-        loc, moore::Reduction::BitwiseXor, value);
+    return builder.create<moore::ReductionOp>(loc, moore::Reduction::BitwiseXor,
+                                              value);
   case slang::ast::UnaryOperator::BitwiseNand:
-    return rootBuilder.create<moore::ReductionOp>(
+    return builder.create<moore::ReductionOp>(
         loc, moore::Reduction::BitwiseNand, value);
   case slang::ast::UnaryOperator::BitwiseNor:
-    return rootBuilder.create<moore::ReductionOp>(
-        loc, moore::Reduction::BitwiseNor, value);
+    return builder.create<moore::ReductionOp>(loc, moore::Reduction::BitwiseNor,
+                                              value);
   case slang::ast::UnaryOperator::BitwiseXnor:
-    return rootBuilder.create<moore::ReductionOp>(
+    return builder.create<moore::ReductionOp>(
         loc, moore::Reduction::BitwiseXnor, value);
   case slang::ast::UnaryOperator::LogicalNot:
-    return rootBuilder.create<moore::UnaryOp>(loc, moore::Unary::LogicalNot,
-                                              value);
+    return builder.create<moore::UnaryOp>(loc, moore::Unary::LogicalNot, value);
   case slang::ast::UnaryOperator::Preincrement:
   case slang::ast::UnaryOperator::Predecrement:
   case slang::ast::UnaryOperator::Postincrement:
@@ -91,12 +90,12 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr) {
 
   switch (binaryExpr->op) {
   case slang::ast::BinaryOperator::Add:
-    return rootBuilder.create<moore::AddOp>(loc, lhs, rhs);
+    return builder.create<moore::AddOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::Subtract:
     mlir::emitError(loc, "unsupported binary operator : subtract");
     return nullptr;
   case slang::ast::BinaryOperator::Multiply:
-    return rootBuilder.create<moore::MulOp>(loc, lhs, rhs);
+    return builder.create<moore::MulOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::Divide:
     mlir::emitError(loc, "unsupported binary operator : divide");
     return nullptr;
@@ -104,42 +103,42 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr) {
     mlir::emitError(loc, "unsupported binary operator : mod");
     return nullptr;
   case slang::ast::BinaryOperator::BinaryAnd:
-    return rootBuilder.create<moore::BitwiseOp>(loc, moore::Bitwise::BinaryAnd,
-                                                lhs, rhs);
+    return builder.create<moore::BitwiseOp>(loc, moore::Bitwise::BinaryAnd, lhs,
+                                            rhs);
   case slang::ast::BinaryOperator::BinaryOr:
-    return rootBuilder.create<moore::BitwiseOp>(loc, moore::Bitwise::BinaryOr,
-                                                lhs, rhs);
+    return builder.create<moore::BitwiseOp>(loc, moore::Bitwise::BinaryOr, lhs,
+                                            rhs);
   case slang::ast::BinaryOperator::BinaryXor:
-    return rootBuilder.create<moore::BitwiseOp>(loc, moore::Bitwise::BinaryXor,
-                                                lhs, rhs);
+    return builder.create<moore::BitwiseOp>(loc, moore::Bitwise::BinaryXor, lhs,
+                                            rhs);
   case slang::ast::BinaryOperator::BinaryXnor:
-    return rootBuilder.create<moore::BitwiseOp>(loc, moore::Bitwise::BinaryXnor,
-                                                lhs, rhs);
+    return builder.create<moore::BitwiseOp>(loc, moore::Bitwise::BinaryXnor,
+                                            lhs, rhs);
   case slang::ast::BinaryOperator::Equality:
-    return rootBuilder.create<moore::EqualityOp>(loc, lhs, rhs);
+    return builder.create<moore::EqualityOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::Inequality:
-    return rootBuilder.create<moore::InEqualityOp>(loc, lhs, rhs);
+    return builder.create<moore::InEqualityOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::CaseEquality:
-    return rootBuilder.create<moore::EqualityOp>(loc, lhs, rhs,
-                                                 rootBuilder.getUnitAttr());
+    return builder.create<moore::EqualityOp>(loc, lhs, rhs,
+                                             builder.getUnitAttr());
   case slang::ast::BinaryOperator::CaseInequality:
-    return rootBuilder.create<moore::InEqualityOp>(loc, lhs, rhs,
-                                                   rootBuilder.getUnitAttr());
+    return builder.create<moore::InEqualityOp>(loc, lhs, rhs,
+                                               builder.getUnitAttr());
   case slang::ast::BinaryOperator::GreaterThanEqual:
     // TODO: I think should integrate these four relation operators into one
-    // rootBuilder.create. But I failed, the error is `resultNumber <
+    // builder.create. But I failed, the error is `resultNumber <
     // getNumResults() && ... ` from Operation.h:983.
-    return rootBuilder.create<moore::RelationalOp>(
+    return builder.create<moore::RelationalOp>(
         loc, moore::Relation::GreaterThanEqual, lhs, rhs);
   case slang::ast::BinaryOperator::GreaterThan:
-    return rootBuilder.create<moore::RelationalOp>(
+    return builder.create<moore::RelationalOp>(
         loc, moore::Relation::GreaterThan, lhs, rhs);
   case slang::ast::BinaryOperator::LessThanEqual:
-    return rootBuilder.create<moore::RelationalOp>(
+    return builder.create<moore::RelationalOp>(
         loc, moore::Relation::LessThanEqual, lhs, rhs);
   case slang::ast::BinaryOperator::LessThan:
-    return rootBuilder.create<moore::RelationalOp>(
-        loc, moore::Relation::LessThan, lhs, rhs);
+    return builder.create<moore::RelationalOp>(loc, moore::Relation::LessThan,
+                                               lhs, rhs);
   case slang::ast::BinaryOperator::WildcardEquality:
     mlir::emitError(loc, "unsupported binary operator : wildcard equality");
     return nullptr;
@@ -147,27 +146,25 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr) {
     mlir::emitError(loc, "unsupported binary operator : wildcard inequality");
     return nullptr;
   case slang::ast::BinaryOperator::LogicalAnd:
-    return rootBuilder.create<moore::LogicalOp>(loc, moore::Logic::LogicalAnd,
-                                                lhs, rhs);
+    return builder.create<moore::LogicalOp>(loc, moore::Logic::LogicalAnd, lhs,
+                                            rhs);
   case slang::ast::BinaryOperator::LogicalOr:
-    return rootBuilder.create<moore::LogicalOp>(loc, moore::Logic::LogicalOr,
-                                                lhs, rhs);
+    return builder.create<moore::LogicalOp>(loc, moore::Logic::LogicalOr, lhs,
+                                            rhs);
   case slang::ast::BinaryOperator::LogicalImplication:
-    return rootBuilder.create<moore::LogicalOp>(
+    return builder.create<moore::LogicalOp>(
         loc, moore::Logic::LogicalImplication, lhs, rhs);
   case slang::ast::BinaryOperator::LogicalEquivalence:
-    return rootBuilder.create<moore::LogicalOp>(
+    return builder.create<moore::LogicalOp>(
         loc, moore::Logic::LogicalEquivalence, lhs, rhs);
   case slang::ast::BinaryOperator::LogicalShiftLeft:
-    return rootBuilder.create<moore::ShlOp>(loc, lhs, rhs);
+    return builder.create<moore::ShlOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::LogicalShiftRight:
-    return rootBuilder.create<moore::ShrOp>(loc, lhs, rhs);
+    return builder.create<moore::ShrOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::ArithmeticShiftLeft:
-    return rootBuilder.create<moore::ShlOp>(loc, lhs, rhs,
-                                            rootBuilder.getUnitAttr());
+    return builder.create<moore::ShlOp>(loc, lhs, rhs, builder.getUnitAttr());
   case slang::ast::BinaryOperator::ArithmeticShiftRight:
-    return rootBuilder.create<moore::ShrOp>(loc, lhs, rhs,
-                                            rootBuilder.getUnitAttr());
+    return builder.create<moore::ShrOp>(loc, lhs, rhs, builder.getUnitAttr());
   case slang::ast::BinaryOperator::Power:
     mlir::emitError(loc, "unsupported binary operator : power");
     return nullptr;
@@ -189,18 +186,18 @@ Value Context::visitAssignmentExpr(
   if (!rhs)
     return nullptr;
   if (lhs.getType() != rhs.getType())
-    rhs = rootBuilder.create<moore::ConversionOp>(loc, lhs.getType(), rhs);
+    rhs = builder.create<moore::ConversionOp>(loc, lhs.getType(), rhs);
   if (assignmentExpr->isNonBlocking())
-    rootBuilder.create<moore::PAssignOp>(loc, lhs, rhs);
+    builder.create<moore::PAssignOp>(loc, lhs, rhs);
   else {
     if (assignmentExpr->syntax->parent->kind ==
         slang::syntax::SyntaxKind::ContinuousAssign)
-      rootBuilder.create<moore::CAssignOp>(loc, lhs, rhs);
+      builder.create<moore::CAssignOp>(loc, lhs, rhs);
     else if (assignmentExpr->syntax->parent->kind ==
              slang::syntax::SyntaxKind::ProceduralAssignStatement)
-      rootBuilder.create<moore::PCAssignOp>(loc, lhs, rhs);
+      builder.create<moore::PCAssignOp>(loc, lhs, rhs);
     else
-      rootBuilder.create<moore::BPAssignOp>(loc, lhs, rhs);
+      builder.create<moore::BPAssignOp>(loc, lhs, rhs);
   }
   return lhs;
 }
@@ -213,7 +210,7 @@ Value Context::visitConcatenation(
   for (auto *operand : concatExpr->operands()) {
     operands.push_back(visitExpression(operand));
   }
-  return rootBuilder.create<moore::ConcatOp>(loc, operands);
+  return builder.create<moore::ConcatOp>(loc, operands);
 }
 
 // It can handle the expressions like literal, assignment, conversion, and etc,

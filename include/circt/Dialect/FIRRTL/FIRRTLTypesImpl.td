@@ -204,7 +204,7 @@ class BaseBundleTypeImpl<string name, string ElementType, list<Trait> traits = [
 
   let extraClassDeclaration = [{
     using ElementType = }] # ElementType # [{;
-
+  
     /// Each element of a bundle, which is a name and type.
     struct BundleElement {
       StringAttr name;
@@ -507,14 +507,6 @@ def IntegerImpl : PropImplType<"FInteger"> {
 def ListImpl : PropImplType<"List"> {
   let summary = "A typed property list of any length.  Not representable in hardware.";
   let parameters = (ins TypeParameter<"circt::firrtl::PropertyType", "element type">:$elementType);
-  let genStorageClass = true;
-  let genAccessors = true;
-}
-
-def MapImpl : PropImplType<"Map"> {
-  let summary = "A typed map of properties.  Not representable in hardware.";
-  let parameters = (ins TypeParameter<"circt::firrtl::PropertyType", "key type">:$keyType,
-                    TypeParameter<"circt::firrtl::PropertyType", "value type">:$valueType);
   let genStorageClass = true;
   let genAccessors = true;
 }

@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef CIRCT_DIALECT_MOORE_MOOREOPS
+#define CIRCT_DIALECT_MOORE_MOOREOPS
+
 include "mlir/IR/RegionKindInterface.td"
 include "circt/Dialect/Moore/MooreTypes.td"
 
@@ -45,35 +48,51 @@ def InstanceOp : MooreOp<"instance", [
 }
 
 def VariableOp : MooreOp<"variable", [
-  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+  OptionalTypesMatchWith<"initial value and variable types match",
+    "result", "initial", "$_self">,
 ]> {
-  let summary = "Declare a variable";
-  let arguments = (ins StrAttr:$name);
+  let summary = "A variable declaration";
+  let description = [{
+    See IEEE 1800-2017 § 6.8 "Variable declarations".
+  }];
+  let arguments = (ins StrAttr:$name, Optional<UnpackedType>:$initial);
   let results = (outs UnpackedType:$result);
   let assemblyFormat = [{
-    `` custom<ImplicitSSAName>($name) attr-dict `:` type($result)
+    `` custom<ImplicitSSAName>($name) ($initial^)? attr-dict
+    `:` type($result)
   }];
 }
 
 def NetOp : MooreOp<"net", [
-  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+  OptionalTypesMatchWith<"assigned value and variable types match",
+    "result", "assignment", "$_self">,
 ]> {
-  let summary = "Declare a net";
-  let arguments = (ins StrAttr:$name, StrAttr:$sym_name);
+  let summary = "A net declaration";
+  let description = [{
+    See IEEE 1800-2017 § 6.7 "Net declarations".
+  }];
+  let arguments = (ins
+    StrAttr:$name,
+    StrAttr:$kind,
+    Optional<UnpackedType>:$assignment
+  );
   let results = (outs UnpackedType:$result);
   let assemblyFormat = [{
-    custom<ImplicitSSAName>($name) $sym_name attr-dict `:` type($result)
+    `` custom<ImplicitSSAName>($name) $kind ($assignment^)? attr-dict
+    `:` type($result)
   }];
 }
 
 def Initial: I32EnumAttrCase<"Initial", 0, "initial">;
 def Final: I32EnumAttrCase<"Final", 1, "final">;
 def Always: I32EnumAttrCase<"Always", 2, "always">;
-def AlwaysComb: I32EnumAttrCase<"AlwaysComb", 3, "alwaysComb">;
-def AlwaysLatch: I32EnumAttrCase<"AlwaysLatch", 4, "alwaysLatch">;
-def AlwaysFF: I32EnumAttrCase<"AlwaysFF", 5, "alwaysFF">;
+def AlwaysComb: I32EnumAttrCase<"AlwaysComb", 3, "always_comb">;
+def AlwaysLatch: I32EnumAttrCase<"AlwaysLatch", 4, "always_latch">;
+def AlwaysFF: I32EnumAttrCase<"AlwaysFF", 5, "always_ff">;
 
-def ProcedureAttr: I32EnumAttr<"Procedure", "Procedure kind",
+def ProcedureKindAttr: I32EnumAttr<"ProcedureKind", "Procedure kind",
             [Initial, Final, Always, AlwaysComb, AlwaysLatch, AlwaysFF]>{
   let cppNamespace = "circt::moore";
 }
@@ -85,26 +104,25 @@ def ProcedureOp : MooreOp<"procedure", [
   RecursiveMemoryEffects,
   RecursivelySpeculatable
 ]> {
-  let summary = "'Structured procedures";
-  let description = "See SV Spec 9.2.";
+  let summary = "A procedure executed at specific simulation steps";
+  let description = [{
+    See IEEE 1800-2017 § 9.2 "Structured procedures".
+  }];
 
   let regions = (region SizedRegion<1>:$body);  
-  let arguments = (ins ProcedureAttr:$procedure);
+  let arguments = (ins ProcedureKindAttr:$kind);
   let results = (outs);
 
   let assemblyFormat = [{
-    `(`$procedure`)` $body attr-dict
+    $kind attr-dict-with-keyword $body
   }];
 
-  let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<(ins "Procedure":$procedure,
-                   CArg<"std::function<void()>", "{}">:$bodyCtor)>
-  ];
-
   let extraClassDeclaration = [{
-
-    mlir::Block &getBodyBlock() { return getBody().front(); }
+    mlir::Block &getBodyBlock() {
+      if (getBody().empty())
+        getBody().emplaceBlock();
+      return getBody().front();
+    }
   }];
 }
 
@@ -165,3 +183,5 @@ def ConversionOp : MooreOp<"conversion", [
     $src attr-dict `:` functional-type($src, $result)
   }];
 }
+
+#endif // CIRCT_DIALECT_MOORE_MOOREOPS

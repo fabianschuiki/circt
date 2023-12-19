@@ -36,6 +36,7 @@ struct Context {
       : intoModuleOp(intoModuleOp), sourceManager(sourceManager),
         getBufferFilePath(std::move(getBufferFilePath)),
         rootBuilder(OpBuilder::atBlockEnd(intoModuleOp.getBody())),
+        builder(OpBuilder::atBlockEnd(intoModuleOp.getBody())),
         symbolTable(intoModuleOp) {}
   Context(const Context &) = delete;
 
@@ -98,6 +99,8 @@ struct Context {
 
   /// A builder for modules and other top-level ops.
   OpBuilder rootBuilder;
+  /// A builder for all other operations, such as statements and expressions.
+  OpBuilder builder;
   /// A symbol table of the MLIR module we are emitting into.
   SymbolTable symbolTable;
 

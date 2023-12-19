@@ -197,6 +197,8 @@ LogicalResult HandshakeLowerExtmemToHWPass::wrapESI(
     auto memServiceDecl = b.create<esi::RandomAccessMemoryDeclOp>(
         loc, origPortInfo.name, TypeAttr::get(dataType),
         b.getI64IntegerAttr(memrefSize));
+    esi::ServicePortInfo writePortInfo = memServiceDecl.writePortInfo();
+    esi::ServicePortInfo readPortInfo = memServiceDecl.readPortInfo();
 
     SmallVector<Value> instanceArgsFromThisMem;
 
@@ -205,24 +207,28 @@ LogicalResult HandshakeLowerExtmemToHWPass::wrapESI(
     b.setInsertionPointToStart(wrapperMod.getBodyBlock());
 
     // Load ports:
-    auto loadServicePort = hw::InnerRefAttr::get(memServiceDecl.getNameAttr(),
-                                                 b.getStringAttr("read"));
     for (unsigned i = 0; i < memType.loadPorts; ++i) {
-      auto loadReq = b.create<esi::RequestInOutChannelOp>(
-          loc, handshake::esiWrapper(dataType), loadServicePort,
-          backedges[resIdx], b.getArrayAttr({}));
-      instanceArgsFromThisMem.push_back(loadReq);
+      auto reqPack = b.create<esi::PackBundleOp>(loc, readPortInfo.type,
+                                                 (Value)backedges[resIdx]);
+      b.create<esi::RequestToServerConnectionOp>(
+          loc, readPortInfo.port, reqPack.getBundle(),
+          esi::AppIDAttr::get(ctx, b.getStringAttr("load"), {}));
+      instanceArgsFromThisMem.push_back(
+          reqPack.getFromChannels()
+              [esi::RandomAccessMemoryDeclOp::RespDirChannelIdx]);
       ++resIdx;
     }
 
     // Store ports:
-    auto storeServicePort = hw::InnerRefAttr::get(memServiceDecl.getNameAttr(),
-                                                  b.getStringAttr("write"));
     for (unsigned i = 0; i < memType.storePorts; ++i) {
-      auto storeReq = b.create<esi::RequestInOutChannelOp>(
-          loc, handshake::esiWrapper(b.getIntegerType(0)), storeServicePort,
-          backedges[resIdx], b.getArrayAttr({}));
-      instanceArgsFromThisMem.push_back(storeReq);
+      auto reqPack = b.create<esi::PackBundleOp>(loc, writePortInfo.type,
+                                                 (Value)backedges[resIdx]);
+      b.create<esi::RequestToServerConnectionOp>(
+          loc, writePortInfo.port, reqPack.getBundle(),
+          esi::AppIDAttr::get(ctx, b.getStringAttr("store"), {}));
+      instanceArgsFromThisMem.push_back(
+          reqPack.getFromChannels()
+              [esi::RandomAccessMemoryDeclOp::RespDirChannelIdx]);
       ++resIdx;
     }
 
@@ -295,8 +301,8 @@ static Value truncateToMemoryWidth(Location loc, OpBuilder &b, Value v,
 }
 
 static Value plumbLoadPort(Location loc, OpBuilder &b,
-                           const handshake::MemLoadInterface &ldif,
-                           Value loadData, MemRefType memrefType) {
+                           handshake::MemLoadInterface &ldif, Value loadData,
+                           MemRefType memrefType) {
   // We need to feed both the load data and the load done outputs.
   // Fork the extracted load data into two, and 'join' the second one to
   // generate a none-typed output to drive the load done.
@@ -315,8 +321,8 @@ static Value plumbLoadPort(Location loc, OpBuilder &b,
 }
 
 static Value plumbStorePort(Location loc, OpBuilder &b,
-                            const handshake::MemStoreInterface &stif,
-                            Value done, Type outType, MemRefType memrefType) {
+                            handshake::MemStoreInterface &stif, Value done,
+                            Type outType, MemRefType memrefType) {
   stif.doneOut.replaceAllUsesWith(done);
   // Return the store address and data to be fed to the top-level output.
   // Address is truncated to the width of the memory that is accessed.

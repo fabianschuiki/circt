@@ -10,40 +10,26 @@
 //
 //===----------------------------------------------------------------------===//
 
-def VariableDeclOp : MIROp<"vardecl", []> {
-  let summary = "A variable declaration";
-
-  let arguments = (ins StrAttr:$name, I32Attr:$init);
-  let results = (outs MooreLValueType:$result);
-  let assemblyFormat = [{
-    $name `=` $init attr-dict `:` custom<LValueType>(type($result))
-  }];
-}
+include "circt/Dialect/Moore/MooreTypes.td"
 
 //===----------------------------------------------------------------------===//
 // Assignment Statements
 //===----------------------------------------------------------------------===//
 
-def AssignOp : MIROp<"assign",
-    [TypesMatchWith<"src and dest types have to match", "src", "dest",
-     "LValueType::get($_self)">]> {
-
+def AssignOp : MIROp<"assign", [SameTypeOperands]> {
   let summary = "Continuous assignment";
   let description = [{
     A SystemVerilog assignment statement 'x = y;'.
     These occur in module scope.  See SV Spec 10.3.2.
   }];
-  let arguments = (ins MooreLValueType:$dest, MooreRValueType:$src);
+  let arguments = (ins UnpackedType:$dest, UnpackedType:$src);
   let results = (outs);
   let assemblyFormat = [{
     $dest `,` $src  attr-dict `:` qualified(type($src))
   }];
 }
 
-def CAssignOp : MIROp<"cassign",
-    [TypesMatchWith<"src and dest types have to match", "src", "dest",
-     "$_self">]> {
-
+def CAssignOp : MIROp<"cassign", [SameTypeOperands]> {
   let summary = "Continuous assignment";
   let description = [{
     A SystemVerilog assignment statement 'x = y;'.
@@ -56,10 +42,7 @@ def CAssignOp : MIROp<"cassign",
   }];
 }
 
-def BPAssignOp : MIROp<"bpassign",
-    [TypesMatchWith<"src and dest types have to match", "src", "dest",
-     "$_self">]> {
-
+def BPAssignOp : MIROp<"bpassign", [SameTypeOperands]> {
   let summary = "Blocking procedural assignment";
   let description = [{
     A SystemVerilog blocking procedural assignment statement 'x = y;'.
@@ -72,10 +55,7 @@ def BPAssignOp : MIROp<"bpassign",
   }];
 }
 
-def PAssignOp : MIROp<"passign",
-    [TypesMatchWith<"src and dest types have to match", "src", "dest",
-     "$_self">]> {
-
+def PAssignOp : MIROp<"passign", [SameTypeOperands]> {
   let summary = "Nonblocking procedural assignment";
   let description = [{
     A SystemVerilog nonblocking procedural assignment statement 'x <= y;'.
@@ -88,10 +68,7 @@ def PAssignOp : MIROp<"passign",
   }];
 }
 
-def PCAssignOp : MIROp<"pcassign",
-    [TypesMatchWith<"src and dest types have to match", "src", "dest",
-     "$_self">]> {
-
+def PCAssignOp : MIROp<"pcassign", [SameTypeOperands]> {
   let summary = "Procedural continuous assignment";
   let description = [{
     A SystemVerilog assignment statement 'assign x = y;'.

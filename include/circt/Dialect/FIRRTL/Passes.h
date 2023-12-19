@@ -60,7 +60,8 @@ std::unique_ptr<mlir::Pass> createLowerBundleVectorTypesPass();
 
 std::unique_ptr<mlir::Pass> createLowerCHIRRTLPass();
 
-std::unique_ptr<mlir::Pass> createLowerIntrinsicsPass();
+std::unique_ptr<mlir::Pass>
+createLowerIntrinsicsPass(bool fixupEICGWrapper = false);
 
 std::unique_ptr<mlir::Pass> createIMConstPropPass();
 
@@ -87,6 +88,10 @@ std::unique_ptr<mlir::Pass>
 createEmitOMIRPass(mlir::StringRef outputFilename = "");
 
 std::unique_ptr<mlir::Pass> createLowerMatchesPass();
+
+std::unique_ptr<mlir::Pass> createLowerSignaturesPass();
+
+std::unique_ptr<mlir::Pass> createPassiveWiresPass();
 
 std::unique_ptr<mlir::Pass> createExpandWhensPass();
 
@@ -146,8 +151,11 @@ std::unique_ptr<mlir::Pass> createDropConstPass();
 /// Configure which values will be explicitly preserved by the DropNames pass.
 namespace PreserveValues {
 enum PreserveMode {
+  /// Strip all names. No name on declaration is preserved.
+  Strip,
   /// Don't explicitly preserve any named values. Every named operation could
-  /// be optimized away by the compiler.
+  /// be optimized away by the compiler. Unlike `Strip` names could be preserved
+  /// until the end.
   None,
   // Explicitly preserved values with meaningful names.  If a name begins with
   // an "_" it is not considered meaningful.
@@ -180,9 +188,17 @@ std::unique_ptr<mlir::Pass> createFinalizeIRPass();
 
 std::unique_ptr<mlir::Pass> createLowerClassesPass();
 
-std::unique_ptr<mlir::Pass> createLowerGroupsPass();
+std::unique_ptr<mlir::Pass> createLowerLayersPass();
 
-std::unique_ptr<mlir::Pass> createGroupSinkPass();
+std::unique_ptr<mlir::Pass> createLayerMergePass();
+
+std::unique_ptr<mlir::Pass> createLayerSinkPass();
+
+std::unique_ptr<mlir::Pass> createMaterializeDebugInfoPass();
+
+std::unique_ptr<mlir::Pass> createLintingPass();
+
+std::unique_ptr<mlir::Pass> createSpecializeOptionPass();
 
 /// Generate the code for registering passes.
 #define GEN_PASS_REGISTRATION

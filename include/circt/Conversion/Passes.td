@@ -408,10 +408,6 @@ def LowerFIRRTLToHW : Pass<"lower-firrtl-to-hw", "mlir::ModuleOp"> {
                            "seq::SeqDialect", "sv::SVDialect",
                            "ltl::LTLDialect", "verif::VerifDialect"];
   let options = [
-    Option<"disableMemRandomization", "disable-mem-randomization", "bool", "false",
-            "Disable emission of memory randomization code">,
-    Option<"disableRegRandomization", "disable-reg-randomization", "bool", "false",
-            "Disable emission of register randomization code">,
     Option<"enableAnnotationWarning", "warn-on-unprocessed-annotations",
            "bool", "false",
     "Emit warnings on unprocessed annotations during lower-to-hw pass">,
@@ -568,6 +564,21 @@ def LowerHWToSV : Pass<"lower-hw-to-sv", "hw::HWModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
+// HWToBTOR2
+//===----------------------------------------------------------------------===//
+
+def ConvertHWToBTOR2 : Pass<"convert-hw-to-btor2", "hw::HWModuleOp"> {
+  let summary = "Convert HW to BTOR2";
+  let description = [{
+    This pass converts a HW module into a state transition system that is then 
+    directly used to emit btor2. The output of this pass is thus a btor2 string.
+  }];
+  let constructor = "circt::createConvertHWToBTOR2Pass()";
+  let dependentDialects = ["hw::HWDialect", "sv::SVDialect", "comb::CombDialect",
+                           "seq::SeqDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // VerifToSV
 //===----------------------------------------------------------------------===//
 
@@ -618,6 +629,10 @@ def ConvertToArcs : Pass<"convert-to-arcs", "mlir::ModuleOp"> {
   }];
   let constructor = "circt::createConvertToArcsPass()";
   let dependentDialects = ["circt::arc::ArcDialect"];
+  let options = [
+    Option<"tapRegisters", "tap-registers", "bool", "true",
+      "Make registers observable">,
+  ];
 }
 
 //===----------------------------------------------------------------------===//
@@ -657,6 +672,8 @@ def LowerSeqToSV: Pass<"lower-seq-to-sv",  "mlir::ModuleOp"> {
   let options = [
     Option<"disableRegRandomization", "disable-reg-randomization", "bool", "false",
            "Disable emission of register randomization code">,
+    Option<"disableMemRandomization", "disable-mem-randomization", "bool", "false",
+           "Disable emission of memory randomization code">,
     Option<"emitSeparateAlwaysBlocks", "emit-separate-always-blocks", "bool", "false",
            "Emit assigments to registers in separate always blocks">,
     Option<"lowerToAlwaysFF", "lower-to-always-ff", "bool", "true",
@@ -672,12 +689,6 @@ def LowerFirMem : Pass<"lower-seq-firmem", "mlir::ModuleOp"> {
   let summary = "Lower seq.firmem ops to instances of hw.module.generated ops";
   let constructor = "circt::createLowerFirMemPass()";
   let dependentDialects = ["circt::hw::HWDialect"];
-}
-
-def LowerSeqFIRRTLInitToSV: Pass<"lower-seq-firrtl-init-to-sv", "mlir::ModuleOp"> {
-  let summary = "Prep the module with macro definitions for firrtl registers.";
-  let constructor = "circt::createLowerSeqFIRRTLInitToSV()";
-  let dependentDialects = ["circt::sv::SVDialect"];
 }
 
 #endif // CIRCT_CONVERSION_PASSES_TD

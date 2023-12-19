@@ -96,8 +96,8 @@ endmodule
 
 // CHECK-LABEL: moore.module @NetType
 module NetType;
-  // CHECK-NEXT: %d0 = moore.net  "wire" : !moore.logic
-  // CHECK-NEXT: %d1 = moore.net  "tri" : !moore.logic
+  // CHECK-NEXT: %d0 = moore.net "wire" : !moore.logic
+  // CHECK-NEXT: %d1 = moore.net "tri" : !moore.logic
   wire d0;
   tri d1;
 endmodule

@@ -19,7 +19,7 @@ LogicalResult Context::visitSignalEvent(
     const slang::ast::SignalEventControl *signalEventControl) {
   auto loc = convertLocation(signalEventControl->sourceRange.start());
   auto name = signalEventControl->expr.getSymbolReference()->name;
-  rootBuilder.create<moore::EventControlOp>(
+  builder.create<moore::EventControlOp>(
       loc, static_cast<moore::Edge>(signalEventControl->edge), name);
   return success();
 }
@@ -42,10 +42,9 @@ Context::visitTimingControl(const slang::ast::TimingControl *timingControl) {
     return visitSignalEvent(
         &timingControl->as<slang::ast::SignalEventControl>());
   case slang::ast::TimingControlKind::EventList:
-    for (auto *event :
-         timingControl->as<slang::ast::EventListControl>().events) {
-      visitTimingControl(event);
-    }
+    for (auto *event : timingControl->as<slang::ast::EventListControl>().events)
+      if (failed(visitTimingControl(event)))
+        return failure();
     break;
   case slang::ast::TimingControlKind::ImplicitEvent:
     return visitImplicitEvent(

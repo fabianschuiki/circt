@@ -15,7 +15,7 @@
 #include "circt/Support/LLVM.h"
 #include "circt/Support/SymCache.h"
 
-#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 using namespace circt;
 using namespace circt::esi;
@@ -79,7 +79,7 @@ void BundlePort::mapInputSignals(OpBuilder &b, Operation *inst, Value,
   SmallVector<Type, 5> toChannelTypes(llvm::map_range(
       newInputChannels, [](hw::PortInfo port) { return port.type; }));
   auto unpack = b.create<UnpackBundleOp>(
-      origPort.loc, toChannelTypes,
+      origPort.loc,
       /*bundle=*/inst->getOperand(origPort.argNum), fromChannels);
 
   // Connect the new instance inputs to the results of the unpack.
@@ -99,9 +99,8 @@ void BundlePort::mapOutputSignals(OpBuilder &b, Operation *inst, Value,
       }));
   SmallVector<Type, 5> fromChannelTypes(llvm::map_range(
       newInputChannels, [](hw::PortInfo port) { return port.type; }));
-  auto pack = b.create<PackBundleOp>(origPort.loc,
-                                     cast<ChannelBundleType>(origPort.type),
-                                     fromChannelTypes, toChannels);
+  auto pack = b.create<PackBundleOp>(
+      origPort.loc, cast<ChannelBundleType>(origPort.type), toChannels);
 
   // Feed the fromChannels into the new instance.
   for (auto [idx, inPort] : llvm::enumerate(newInputChannels))
@@ -117,9 +116,6 @@ void BundlePort::buildInputSignals() {
   SmallVector<Value, 4> newInputValues;
   SmallVector<BundledChannel, 4> outputChannels;
 
-  SmallVector<Type, 4> packOpResultTypes;
-  packOpResultTypes.push_back(bundleType);
-
   for (BundledChannel ch : bundleType.getChannels()) {
     // 'to' on an input bundle becomes an input channel.
     if (ch.direction == ChannelDirection::to) {
@@ -129,7 +125,6 @@ void BundlePort::buildInputSignals() {
       newInputChannels.push_back(newPort);
     } else {
       // 'from' on an input bundle becomes an output channel.
-      packOpResultTypes.push_back(ch.type);
       outputChannels.push_back(ch);
     }
   }
@@ -139,7 +134,7 @@ void BundlePort::buildInputSignals() {
   PackBundleOp pack;
   if (body) {
     ImplicitLocOpBuilder b(origPort.loc, body, body->begin());
-    pack = b.create<PackBundleOp>(packOpResultTypes, newInputValues);
+    pack = b.create<PackBundleOp>(bundleType, newInputValues);
     body->getArgument(origPort.argNum).replaceAllUsesWith(pack.getBundle());
   }
 
@@ -156,10 +151,7 @@ void BundlePort::buildInputSignals() {
 /// into the new channel ports.
 void BundlePort::buildOutputSignals() {
   auto bundleType = cast<ChannelBundleType>(origPort.type);
-  SmallVector<Value, 4> unpackOperands;
-  if (body)
-    unpackOperands.push_back(
-        body->getTerminator()->getOperand(origPort.argNum));
+  SmallVector<Value, 4> unpackChannels;
   SmallVector<BundledChannel, 4> outputChannels;
 
   SmallVector<Type, 4> unpackOpResultTypes;
@@ -167,7 +159,7 @@ void BundlePort::buildOutputSignals() {
     // 'from' on an input bundle becomes an input channel.
     if (ch.direction == ChannelDirection::from) {
       hw::PortInfo newPort;
-      unpackOperands.push_back(converter.createNewInput(
+      unpackChannels.push_back(converter.createNewInput(
           origPort, "_" + ch.name.getValue(), ch.type, newPort));
       newInputChannels.push_back(newPort);
     } else {
@@ -180,10 +172,10 @@ void BundlePort::buildOutputSignals() {
   // For an output port, the original bundle must be unpacked into the
   // individual channel ports.
   UnpackBundleOp unpack;
-  if (body) {
-    ImplicitLocOpBuilder b(origPort.loc, body, body->end());
-    unpack = b.create<UnpackBundleOp>(unpackOpResultTypes, unpackOperands);
-  }
+  if (body)
+    unpack = OpBuilder::atBlockTerminator(body).create<UnpackBundleOp>(
+        origPort.loc, body->getTerminator()->getOperand(origPort.argNum),
+        unpackChannels);
 
   // Build new ports and put the new port info directly into the member
   // variable.
@@ -217,14 +209,17 @@ void ESIBundlesPass::runOnOperation() {
 
   // Canonicalize away bundle packs and unpacks. Any non-back-to-back [un]packs
   // need to be gone by now.
-  ConversionTarget tgt(ctxt);
-  tgt.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
-  tgt.addIllegalOp<PackBundleOp, UnpackBundleOp>();
   RewritePatternSet patterns(&ctxt);
   PackBundleOp::getCanonicalizationPatterns(patterns, &ctxt);
   UnpackBundleOp::getCanonicalizationPatterns(patterns, &ctxt);
-  if (failed(applyPartialConversion(getOperation(), tgt, std::move(patterns))))
+  if (failed(mlir::applyPatternsAndFoldGreedily(getOperation(),
+                                                std::move(patterns))))
     signalPassFailure();
+
+  top.walk([&](PackBundleOp pack) {
+    pack.emitError("PackBundleOp should have been canonicalized away by now");
+    signalPassFailure();
+  });
 }
 
 std::unique_ptr<OperationPass<ModuleOp>>
