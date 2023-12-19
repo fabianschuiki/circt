@@ -373,6 +373,52 @@ def BitwiseOp : MIROp<"bin_bitwise", [
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// BitSelect
+//===----------------------------------------------------------------------===//
+
+def BitSelectOp : MIROp<"bit_select"> {
+  let description = [{
+    Bit-selects extract a particular bit from a vector, packed array, 
+    packed structure, parameter, or concatenation. If the bit-select 
+    address is invalid (it is out of bounds or has one or more x or z bits), 
+    then the value returned by the reference shall be x for 4-state 
+    and 0 for 2-state values. Like `a[9]`.
+    See IEEE Std 1800-2017 11.5.1 "Vector bit-select and part-select".
+  }];
+  let arguments = (ins Variadic<UnpackedType>:$values);
+  let results = (outs UnpackedType:$result);
+  let assemblyFormat = [{
+    $values attr-dict `:` functional-type($values, $result)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// PartSelect
+//===----------------------------------------------------------------------===//
+
+def Simple : I32EnumAttrCase<"Simple", 0, "simple">;
+def IndexedUp : I32EnumAttrCase<"IndexedUp", 1, "index_up">;
+def IndexedDown : I32EnumAttrCase<"IndexedDown", 2, "index_down">;
+
+def RangeSelectAttr : I32EnumAttr<"rangeSelect", "Range select kind",
+                                  [Simple, IndexedUp, IndexedDown]>{
+  let cppNamespace = "circt::moore";
+}
+
+def PartSelect : MIROp<"part_select"> {
+  let description = [{
+    There are two types of part-selects: a non-indexed part-select and an 
+    indexed part-select. Previous is a[11:4], and latter is like a[11+:4]. 
+    See IEEE Std 1800-2017 11.5.1 "Vector bit-select and part-select".
+  }];
+  let arguments = (ins RangeSelectAttr:$kind, 
+                       Variadic<UnpackedType>:$values);
+  let results = (outs UnpackedType:$result);
+  let assemblyFormat = [{
+    $kind $values attr-dict `:` functional-type($values, $result)
+  }];
+}
 
 //===---------------------------------------------------------------------===//
 // Arithmetic Operations 
