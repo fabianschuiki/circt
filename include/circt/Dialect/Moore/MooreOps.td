@@ -161,7 +161,7 @@ def EventControlOp : MooreOp<"event", [
   HasParent<"ProcedureOp">
 ]> {
   let summary = "Detecting posedge and negedge";
-  let description = "See SV Spec 9.4.2.";
+  let description = "See IEEE 1800-2017 § 9.4.2 'Event control'.";
   let arguments = (ins EdgeAtrr:$edge, StrAttr:$name);
   let results = (outs);
   let assemblyFormat = [{
@@ -173,11 +173,12 @@ def ConversionOp : MooreOp<"conversion", [
   Pure
 ]> {
   let description = [{
+    This Op is actually used to simulate the action of the slang AST.
     Like logic[31:0] a; int b; assign a = b;
     The type of b is converted from int to logic[31:0].
   }];
   let arguments = (ins AnyType:$src);
-  let results = (outs SimpleBitVectorType:$result);
+  let results = (outs UnpackedType:$result);
   
   let assemblyFormat = [{
     $src attr-dict `:` functional-type($src, $result)

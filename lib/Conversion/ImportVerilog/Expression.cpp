@@ -192,7 +192,7 @@ Value Context::visitAssignmentExpr(
   else {
     if (assignmentExpr->syntax->parent->kind ==
         slang::syntax::SyntaxKind::ContinuousAssign)
-      builder.create<moore::CAssignOp>(loc, lhs, rhs);
+      builder.create<moore::AssignOp>(loc, lhs, rhs);
     else if (assignmentExpr->syntax->parent->kind ==
              slang::syntax::SyntaxKind::ProceduralAssignStatement)
       builder.create<moore::PCAssignOp>(loc, lhs, rhs);
@@ -211,6 +211,17 @@ Value Context::visitConcatenation(
     operands.push_back(visitExpression(operand));
   }
   return builder.create<moore::ConcatOp>(loc, operands);
+}
+
+// Detail processing about replication.
+Value Context::visitRelication(
+    const slang::ast::ReplicationExpression *replicationExpre) {
+  auto loc = convertLocation(replicationExpre->sourceRange.start());
+  auto type = convertType(*replicationExpre->type);
+  Value count = visitExpression(&replicationExpre->count());
+  Value concat = visitExpression(&replicationExpre->concat());
+  return builder.create<moore::ReplicationOp>(loc, type,
+                                              ValueRange({count, concat}));
 }
 
 // It can handle the expressions like literal, assignment, conversion, and etc,
@@ -235,9 +246,13 @@ Value Context::visitExpression(const slang::ast::Expression *expression) {
   case slang::ast::ExpressionKind::Conversion:
     return visitExpression(
         &expression->as<slang::ast::ConversionExpression>().operand());
+  case slang::ast::ExpressionKind::Replication:
+    return visitRelication(
+        &expression->as<slang::ast::ReplicationExpression>());
   // There is other cases.
   default:
-    mlir::emitError(loc, "unsupported expression");
+    mlir::emitError(loc, "unsupported expression: ")
+        << slang::ast::toString(expression->kind);
     return nullptr;
   }
 

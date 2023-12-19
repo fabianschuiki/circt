@@ -58,13 +58,13 @@ module Expressions();
     // CHECK: moore.mir.logic or %a, %b : !moore.int, !moore.int
     c = a || b;
 
-    // CHECK: moore.mir.binBitwise and %a, %b : !moore.int, !moore.int
+    // CHECK: moore.mir.bin_bitwise and %a, %b : !moore.int, !moore.int
     c = a & b;
-    // CHECK: moore.mir.binBitwise or %a, %b : !moore.int, !moore.int
+    // CHECK: moore.mir.bin_bitwise or %a, %b : !moore.int, !moore.int
     c = a | b;
-    // CHECK: moore.mir.binBitwise xor %a, %b : !moore.int, !moore.int
+    // CHECK: moore.mir.bin_bitwise xor %a, %b : !moore.int, !moore.int
     c = a ^ b;
-    // CHECK: moore.mir.binBitwise xnor %a, %b : !moore.int, !moore.int
+    // CHECK: moore.mir.bin_bitwise xnor %a, %b : !moore.int, !moore.int
     c = a ~^ b;
 
     // CHECK: moore.mir.eq case %a, %b : !moore.int, !moore.int
@@ -92,6 +92,9 @@ module Expressions();
     c = a <<< b;
     // CHECK: moore.mir.shr arithmetic %a, %b : !moore.int, !moore.int
     c = a >>> b;
+
+    // CHECK: moore.mir.concat %a, %b : (!moore.int, !moore.int) -> !moore.packed<range<bit, 63:0>>
+    c = {a,b};
   end
 endmodule
 

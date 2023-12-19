@@ -75,6 +75,8 @@ struct Context {
   visitAssignmentExpr(const slang::ast::AssignmentExpression *assignmentExpr);
   Value
   visitConcatenation(const slang::ast::ConcatenationExpression *concatExpr);
+  Value
+  visitRelication(const slang::ast::ReplicationExpression *replicationExpre);
 
   // Convert a slang timing control into an MLIR timing control.
   LogicalResult
