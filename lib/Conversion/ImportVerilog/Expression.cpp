@@ -70,8 +70,65 @@ struct ExprVisitor {
     return builder.create<moore::ConversionOp>(loc, type, operand);
   }
 
+  // Augumented assignment
+  Value visit(const slang::ast::BinaryExpression &expr, Value &lhs,
+              Value &rhs) {
+    if (!lhs || !rhs)
+      return {};
+
+    using slang::ast::BinaryOperator;
+    switch (expr.op) {
+    case BinaryOperator::Add:
+      return createBinary<moore::AsAddOp>(lhs, rhs);
+    case BinaryOperator::Subtract:
+      return createBinary<moore::AsSubOp>(lhs, rhs);
+    case BinaryOperator::Multiply:
+      return createBinary<moore::AsMulOp>(lhs, rhs);
+    case BinaryOperator::Divide:
+      return createBinary<moore::AsDivOp>(lhs, rhs);
+    case BinaryOperator::Mod:
+      return createBinary<moore::AsModOp>(lhs, rhs);
+
+    case BinaryOperator::BinaryAnd:
+      return createBinary<moore::AsAndOp>(lhs, rhs);
+    case BinaryOperator::BinaryOr:
+      return createBinary<moore::AsOrOp>(lhs, rhs);
+    case BinaryOperator::BinaryXor:
+      return createBinary<moore::AsXorOp>(lhs, rhs);
+    default:
+      mlir::emitError(loc, "unsupported binary operator");
+    }
+    return {};
+  }
+
   Value visit(const slang::ast::AssignmentExpression &expr) {
+    // For the assignment operator, right recursion is required for assignment
+    // types
+    // a += (a += 1)
+    // -------------------------------------------
+    // JSON
+    // -------------------------------------------
+    //               Assign
+    //              /      \
+    //      namedValue     Add
+    //                    /   \
+    //           lvalueRef    Assign
+    //                       /      \
+    //               namedValue     Add
+    //                             /   \
+    //                     lvalueRef   Int 1
+
     auto lhs = context.convertExpression(expr.left());
+    const auto &rchild = expr.right();
+    if (rchild.as_if<const slang::ast::BinaryExpression>() &&
+        rchild.as<const slang::ast::BinaryExpression>()
+            .left()
+            .as_if<const slang::ast::LValueReferenceExpression>()) {
+      auto &rrchild = rchild.as<const slang::ast::BinaryExpression>().right();
+      auto rvalue = context.convertExpression(rrchild);
+      auto sumValue = rchild.visit(*this, lhs, rvalue);
+      return sumValue;
+    }
     auto rhs = context.convertExpression(expr.right());
     if (!lhs || !rhs)
       return {};
@@ -268,7 +325,8 @@ struct ExprVisitor {
   }
 
   Value visit(const slang::ast::IntegerLiteral &expr) {
-    // TODO: This is wildly unsafe and breaks for anything larger than 32 bits.
+    // TODO: This is wildly unsafe and breaks for anything larger than 32
+    // bits.
     auto value = expr.getValue().as<uint32_t>().value();
     auto type = context.convertType(*expr.type);
     return builder.create<moore::ConstantOp>(loc, type, value);
@@ -292,8 +350,21 @@ struct ExprVisitor {
         << slang::ast::toString(node.kind);
     return {};
   }
+  /// Emit an error for all other expressions.
+  template <typename T, typename... Args>
+  Value visit(T &&node, Args &&...args) {
+    mlir::emitError(loc, "unsupported expression: ")
+        << slang::ast::toString(node.kind);
+    return {};
+  }
 
   Value visitInvalid(const slang::ast::Expression &expr) {
+    mlir::emitError(loc, "invalid expression");
+    return {};
+  }
+
+  template <typename... Args>
+  Value visitInvalid(const slang::ast::Expression &expr, Args &&...args) {
     mlir::emitError(loc, "invalid expression");
     return {};
   }

@@ -180,6 +180,30 @@ module Expressions();
     c = a <<< b;
     // CHECK: moore.mir.shr arithmetic %a, %b : !moore.int, !moore.int
     c = a >>> b;
+
+    // Assign operators
+
+    // CHECK: moore.asadd %a, %b : !moore.int
+    a += b;
+    
+    // CHECK: [[TMP0:%.+]] = moore.asadd %a, %b : !moore.int
+    // CHECK: moore.asadd %a, [[TMP0]] : !moore.int
+    a += (a+=b);
+    // CHECK: moore.assub %a, %b : !moore.int
+    a -= b;
+    // CHECK: moore.asmul %a, %b : !moore.int
+    a *= b;
+    // CHECK: moore.asdiv %f, %d : !moore.integer
+    f /= d;
+    // CHECK: moore.asmod %f, %d : !moore.integer
+    f %= d;
+
+    // CHECK: moore.asand %a, %b : !moore.int
+    a &= b;
+    // CHECK: moore.asor %a, %b : !moore.int
+    a |= b;
+    // CHECK: moore.asxor %a, %b : !moore.int
+    a ^= b;
   end
 endmodule
 

@@ -442,6 +442,94 @@ def XorOp : BinaryOpBase<"xor", [Commutative]> {
   }];
 }
 
+def AsAddOp : BinaryOpBase<"asadd">{
+  let summary = "Assign Addition";
+  let description = [{
+    Augmented Assignment.  
+    The operation is identical to Addition, 
+    with the exception that the result is stored in the left operand
+    `a+=1 // the same as a = a+1`
+    See IEEE 1800-2017 § 11.4.1 "Assignment operators".
+  }];
+}
+
+def AsSubOp : BinaryOpBase<"assub"> {
+  let summary = "Assign Subtraction";
+  let description = [{
+    Augmented Assignment.  
+    The operation is identical to Subtraction, 
+    with the exception that the result is stored in the left operand
+    `a-=1 // the same as a = a-1`
+    See IEEE 1800-2017 § 11.4.1 "Assignment operators".
+  }];
+}
+
+def AsMulOp : BinaryOpBase<"asmul"> {
+  let summary = "Assign Multiplication";
+  let description = [{
+    Augmented Assignment.  
+    The operation is identical to Multiplication, 
+    with the exception that the result is stored in the left operand
+    `a*=1 // the same as a = a*1`
+    See IEEE 1800-2017 § 11.4.1 "Assignment operators".
+  }];
+}
+
+def AsDivOp : BinaryOpBase<"asdiv"> {
+  let summary = "Assign Division";
+  let description = [{
+    Augmented Assignment.
+    The operation is identical to Division, 
+    with the exception that the result is stored in the left operand
+    `a/=1 // the same as a = a/1`
+    See IEEE 1800-2017 § 11.4.1 "Assignment operators".
+  }];
+}
+
+def AsModOp : BinaryOpBase<"asmod"> {
+  let summary = "Assign Remainder";
+  let description = [{
+    Augmented Assignment.
+    The operation is identical to Remainder, 
+    with the exception that the result is stored in the left operand
+    `a%=1 // the same as a = a%1`
+    See IEEE 1800-2017 § 11.4.1 "Assignment operators".
+  }];
+}
+
+def AsAndOp : BinaryOpBase<"asand"> {
+  let summary = "Assign Bitwise AND operation";
+  let description = [{
+    Augmented Assignment.
+    The operation is identical to And, 
+    with the exception that the result is stored in the left operand
+    `a&=1 // the same as a = a&1`
+    See IEEE 1800-2017 § 11.4.1 "Assignment operators".
+  }];
+}
+
+def AsOrOp : BinaryOpBase<"asor"> {
+  let summary = "Bitwise OR operation";
+  let description = [{
+    Augmented Assignment.
+    The operation is identical to Or, 
+    with the exception that the result is stored in the left operand
+    `a|=1 // the same as a = a|1`
+    See IEEE 1800-2017 § 11.4.1 "Assignment operators".
+  }];
+}
+
+def AsXorOp : BinaryOpBase<"asxor"> {
+  let summary = "Bitwise XOR operation";
+  let description = [{
+    Augmented Assignment.
+    The operation is identical to Xor, 
+    with the exception that the result is stored in the left operand
+    `a^=1 // the same as a = a^1`
+    See IEEE 1800-2017 § 11.4.1 "Assignment operators".
+  }];
+}
+
 class LogicalEqOpBase<string mnemonic> : MooreOp<mnemonic, [
   Pure,
   Commutative,
