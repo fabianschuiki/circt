@@ -44,7 +44,11 @@ struct KnownBits {
           APSInt(APInt::getAllOnes(fullyKnownValue.getValue().getBitWidth())));
   }
 
-  operator bool() const { return bits && known; }
+  explicit operator bool() const { return bits && known; }
+
+  bool operator==(const KnownBits &other) const {
+    return bits == other.bits && known == other.known;
+  }
 };
 
 class KnownBitsFoldResult : public std::variant<KnownBits, Value> {
@@ -53,7 +57,7 @@ public:
 
   operator bool() const {
     if (auto *known = std::get_if<KnownBits>(this))
-      return *known;
+      return bool(*known);
     return bool(std::get<Value>(*this));
   }
 };
@@ -218,6 +222,36 @@ void HierarchyAnalysis::run() {
                       context->values.lookup(outputOperand));
       }
       continue;
+    }
+
+    // If this is a register without reset, or where the reset value matches the
+    // constant input value, forward its input value.
+    if (auto regOp = dyn_cast<seq::FirRegOp>(op)) {
+      auto nextValue = context->values.lookup(regOp.getNext());
+      auto resetValue = context->values.lookup(regOp.getResetValue());
+      if (nextValue && (!regOp.getReset() || nextValue == resetValue)) {
+        updateValue(context, regOp, nextValue);
+        continue;
+      }
+    }
+
+    // If this is a memory with constant write data, forward that value to its
+    // read ports.
+    if (auto writeOp = dyn_cast<seq::FirMemWriteOp>(op)) {
+      auto value = context->values.lookup(writeOp.getData());
+      if (value) {
+        LLVM_DEBUG(llvm::dbgs() << "  - Constant write of " << value.bits
+                                << ": " << writeOp << "\n");
+        continue;
+      }
+    }
+    if (auto writeOp = dyn_cast<seq::FirMemReadWriteOp>(op)) {
+      auto value = context->values.lookup(writeOp.getWriteData());
+      if (value) {
+        LLVM_DEBUG(llvm::dbgs() << "  - Constant write of " << value.bits
+                                << ": " << writeOp << "\n");
+        continue;
+      }
     }
 
     // Collect all of the constant operands feeding into this operation.
