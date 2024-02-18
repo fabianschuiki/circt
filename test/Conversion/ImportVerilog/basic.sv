@@ -78,6 +78,8 @@ module Expressions();
   integer d, e, f;
   bit x;
   logic y;
+  bit [1:0] r;
+  bit [3:0] s;
 
   initial begin
     // CHECK: moore.constant 42 : !moore.int
@@ -264,6 +266,9 @@ module Expressions();
     // CHECK: moore.ashr %a, %b : !moore.int, !moore.int
     a >>>= b;
 
+    // CHECK: [[TMP:%.+]] = moore.concat %r : (!moore.packed<range<bit, 1:0>>) -> !moore.packed<range<bit, 1:0>>
+    // CHECK: moore.replicate [[TMP]] : (!moore.packed<range<bit, 1:0>>) -> !moore.packed<range<bit, 3:0>>
+    s = {2{r}};
   end
 endmodule
 

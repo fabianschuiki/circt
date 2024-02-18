@@ -8,63 +8,54 @@
 
 #include "slang/ast/TimingControl.h"
 #include "ImportVerilogInternals.h"
-#include "circt/Dialect/Moore/MooreOps.h"
-#include "mlir/IR/Diagnostics.h"
-#include "slang/ast/ASTVisitor.h"
 
 using namespace circt;
 using namespace ImportVerilog;
 
-LogicalResult Context::visitSignalEvent(
-    const slang::ast::SignalEventControl *signalEventControl) {
-  auto loc = convertLocation(signalEventControl->sourceRange.start());
-  auto name = signalEventControl->expr.getSymbolReference()->name;
-  builder.create<moore::EventControlOp>(
-      loc, static_cast<moore::Edge>(signalEventControl->edge), name);
-  return success();
-}
+namespace {
+struct TimingCtrlVisitor {
+  Context &context;
+  Location loc;
+  OpBuilder &builder;
 
-LogicalResult Context::visitImplicitEvent(
-    const slang::ast::ImplicitEventControl *implEventControl) {
-  // Output a hint?
-  return success();
-}
+  LogicalResult visit(const slang::ast::SignalEventControl &ctrl) {
+    auto loc = context.convertLocation(ctrl.sourceRange.start());
+    auto input = context.convertExpression(ctrl.expr);
+    builder.create<moore::EventControlOp>(
+        loc, static_cast<moore::Edge>(ctrl.edge), input);
+    return success();
+  }
 
-LogicalResult
-Context::visitTimingControl(const slang::ast::TimingControl *timingControl) {
-  auto loc = convertLocation(timingControl->sourceRange.start());
-  switch (timingControl->kind) {
-  case slang::ast::TimingControlKind::Delay:
-    return mlir::emitError(loc, "unsupported timing comtrol: delay control");
-  case slang::ast::TimingControlKind::Delay3:
-    return mlir::emitError(loc, "unsupported timing comtrol: delay3 control");
-  case slang::ast::TimingControlKind::SignalEvent:
-    return visitSignalEvent(
-        &timingControl->as<slang::ast::SignalEventControl>());
-  case slang::ast::TimingControlKind::EventList:
-    for (auto *event : timingControl->as<slang::ast::EventListControl>().events)
-      if (failed(visitTimingControl(event)))
+  LogicalResult visit(const slang::ast::ImplicitEventControl &ctrl) {
+    return success();
+  }
+
+  LogicalResult visit(const slang::ast::EventListControl &ctrl) {
+    for (auto *event : ctrl.as<slang::ast::EventListControl>().events) {
+      if (failed(context.convertTimingControl(*event)))
         return failure();
-    break;
-  case slang::ast::TimingControlKind::ImplicitEvent:
-    return visitImplicitEvent(
-        &timingControl->as<slang::ast::ImplicitEventControl>());
-  case slang::ast::TimingControlKind::RepeatedEvent:
-    return mlir::emitError(
-        loc, "unsupported timing comtrol: repeated event control");
-  case slang::ast::TimingControlKind::OneStepDelay:
-    return mlir::emitError(
-        loc, "unsupported timing comtrol: one step delay control");
-  case slang::ast::TimingControlKind::CycleDelay:
-    return mlir::emitError(loc,
-                           "unsupported timing comtrol: cycle delay control");
-  case slang::ast::TimingControlKind::BlockEventList:
-    return mlir::emitError(
-        loc, "unsupported timing comtrol: block event list control");
+    }
+    return success();
+  }
 
-  default:
-    mlir::emitError(loc, "unsupported timing control");
+  /// Emit an error for all other timing controls.
+  template <typename T>
+  LogicalResult visit(T &&node) {
+    mlir::emitError(loc, "unspported timing control: ")
+        << slang::ast::toString(node.kind);
     return failure();
   }
-  return success();
+
+  LogicalResult visitInvalid(const slang::ast::TimingControl &ctrl) {
+    mlir::emitError(loc, "invalid timing control");
+    return failure();
+  }
+};
+} // namespace
+
+LogicalResult
+Context::convertTimingControl(const slang::ast::TimingControl &timingControl) {
+  auto loc = convertLocation(timingControl.sourceRange.start());
+  TimingCtrlVisitor visitor{*this, loc, builder};
+  return timingControl.visit(visitor);
 }

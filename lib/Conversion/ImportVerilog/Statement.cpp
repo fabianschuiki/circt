@@ -87,8 +87,8 @@ struct StmtVisitor {
   }
 
   LogicalResult visit(const slang::ast::TimedStatement &timeStmt) {
-    if (failed(context.visitTimingControl(
-            &timeStmt.as<slang::ast::TimedStatement>().timing)))
+    if (failed(context.convertTimingControl(
+            timeStmt.as<slang::ast::TimedStatement>().timing)))
       return failure();
     if (failed(timeStmt.stmt.visit(*this)))
       return failure();

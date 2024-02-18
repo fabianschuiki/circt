@@ -66,20 +66,7 @@ struct Context {
 
   // Convert a slang timing control into an MLIR timing control.
   LogicalResult
-  visitTimingControl(const slang::ast::TimingControl *timingControl);
-
-  LogicalResult visitDelay(const slang::ast::DelayControl *delay);
-  LogicalResult visitDelay3(const slang::ast::Delay3Control *delay3);
-  LogicalResult
-  visitSignalEvent(const slang::ast::SignalEventControl *signalEventControl);
-  LogicalResult
-  visitImplicitEvent(const slang::ast::ImplicitEventControl *implEventControl);
-  LogicalResult visitRepeatedEvent(
-      const slang::ast::RepeatedEventControl *repeatedEventControl);
-  LogicalResult
-  visitOneStepDelay(const slang::ast::OneStepDelayControl *oneStepDelayControl);
-  LogicalResult
-  visitCycleDelay(const slang::ast::CycleDelayControl *cycleDelayControl);
+  convertTimingControl(const slang::ast::TimingControl &timingControl);
 
   void pushLValue(mlir::Value *lval);
   void popLValue();

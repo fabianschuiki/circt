@@ -227,9 +227,12 @@ def PCAssignOp : MooreOp<"pcassign", [SameTypeOperands]> {
 }
 
 def None: I32EnumAttrCase<"None", 0, "none">;
+/// Transit from 0 to x/z/1, and from x/z to 1.
 def PosEdge: I32EnumAttrCase<"PosEdge", 1, "posedge">;
+/// Transit from 1 to x/z/0, and from x/z to 0.
 def NegEdge: I32EnumAttrCase<"NegEdge", 2, "negedge">;
-def BothEdges: I32EnumAttrCase<"BothEdges", 3, "bothedges">;
+/// Include the negedge and posedge.
+def BothEdges: I32EnumAttrCase<"BothEdges", 3, "edge">;
 
 def EdgeAtrr: I32EnumAttr<"Edge", "Edge kind",
                           [None, PosEdge, NegEdge, BothEdges]>{
@@ -240,11 +243,20 @@ def EventControlOp : MooreOp<"event", [
   HasParent<"ProcedureOp">
 ]> {
   let summary = "Detecting posedge and negedge";
-  let description = "See SV Spec 9.4.2.";
-  let arguments = (ins EdgeAtrr:$edge, StrAttr:$name);
+  let description = [{
+    It is introduced by the symbol `@`, and it allows statement execution to
+    be delayed until the occurrence of some simulation event occurring in a
+    procedure executing concurrently with this procedure.
+    See IEEE 1800-2017 § 9.4.2 "Event control".
+    Example:
+    ```mlir
+      moore.event posedge %clk : !moore.logic
+    ```
+  }];
+  let arguments = (ins EdgeAtrr:$edge, UnpackedType:$input);
   let results = (outs);
   let assemblyFormat = [{
-    $edge $name attr-dict
+    $edge $input attr-dict `:` type($input)
   }];
 }
 
@@ -687,6 +699,39 @@ def ConcatOp : MooreOp<"concat", [
   let assemblyFormat = [{
     $values attr-dict `:` functional-type($values, $result)
   }];
+}
+
+def ReplicateOp : MooreOp<"replicate", [
+  Pure
+]> {
+  let summary = "Multiple concatenation of expressions";
+  let description = [{
+    This operation indicates a joining together of that many copies of the 
+    concatenation `{constant{w}}`. Which enclosed together within brace.
+    The 'constant' must a non-negative, non-x, and non-z constant expression.
+    The 'constant' may be a value of zero, but it only exists in parameterized
+    code, and it will be ignored(type is changed to the void).
+    Example:
+    ```
+      {4{w}}   // the same as {w, w, w, w}
+    ```
+    See IEEE 1800-2017 §11.4.12 "Concatenation operators".
+  }];
+
+  let arguments = (ins SimpleBitVectorType:$value);
+  let results = (outs SimpleBitVectorType:$result);
+  let assemblyFormat = [{
+    $value attr-dict `:` functional-type($value, $result)
+  }];
+
+  let builders = [
+    OpBuilder<(ins "Value":$value, "int32_t":$multiple), [{
+      auto bitWidth = cast<moore::PackedType>(value.getType())
+                          .getSimpleBitVector().size;
+      auto resultType = $_builder.getIntegerType(multiple*bitWidth);
+      return build($_builder, $_state, resultType, value);
+    }]>
+  ];
 }
 
 #endif // CIRCT_DIALECT_MOORE_MOOREOPS

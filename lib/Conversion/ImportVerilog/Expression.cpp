@@ -316,7 +316,7 @@ struct ExprVisitor {
 
   Value visit(const slang::ast::IntegerLiteral &expr) {
     // TODO: This is wildly unsafe and breaks for anything larger than 32 bits.
-    auto value = expr.getValue().as<uint32_t>().value();
+    auto value = *expr.getValue().getRawPtr();
     auto type = context.convertType(*expr.type);
     return builder.create<moore::ConstantOp>(loc, type, value);
   }
@@ -339,6 +339,15 @@ struct ExprVisitor {
       operands.push_back(value);
     }
     return builder.create<moore::ConcatOp>(loc, operands);
+  }
+
+  Value visit(const slang::ast::ReplicationExpression &expr) {
+    auto type = context.convertType(*expr.type);
+    auto value = context.convertExpression(expr.concat());
+    auto multiple = *expr.count().constant->integer().getRawPtr();
+    if (!value || !multiple)
+      return {};
+    return builder.create<moore::ReplicateOp>(loc, type, value);
   }
 
   /// Emit an error for all other expressions.
