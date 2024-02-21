@@ -173,6 +173,11 @@ struct MemberVisitor {
     return success();
   }
 
+  // Handle statement blocks.
+  LogicalResult visit(const slang::ast::StatementBlockSymbol &blockNode) {
+    return context.convertStatementBlock(&blockNode);
+  }
+
   // Handle procedures.
   LogicalResult visit(const slang::ast::ProceduralBlockSymbol &procNode) {
     auto procOp = builder.create<moore::ProcedureOp>(
@@ -319,4 +324,41 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
   }
 
   return success();
+}
+
+LogicalResult
+Context::convertStatementBlock(const slang::ast::StatementBlockSymbol *stmt) {
+  for (auto &member : stmt->members()) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "- Handling " << slang::ast::toString(member.kind) << "\n");
+    auto loc = convertLocation(member.location);
+
+    // Handle variables.
+    if (auto *varAst = member.as_if<slang::ast::VariableSymbol>()) {
+      auto loweredType = convertType(*varAst->getDeclaredType());
+      if (!loweredType)
+        return failure();
+
+      Value initial;
+      if (varAst->getInitializer())
+        initial = convertExpression(*varAst->getInitializer());
+
+      auto varOp = builder.create<moore::VariableOp>(
+          convertLocation(varAst->location), loweredType,
+          builder.getStringAttr(varAst->name), initial);
+      varSymbolTable.insert(varAst->name, varOp);
+      continue;
+    }
+
+    // Handle StatementBlock.
+    if (auto *stmtAst = member.as_if<slang::ast::StatementBlockSymbol>()) {
+      if (failed(convertStatementBlock(stmtAst)))
+        return failure();
+      continue;
+    }
+
+    mlir::emitWarning(loc, "unsupported construct ignored: ")
+        << slang::ast::toString(member.kind);
+  }
+  return mlir::success();
 }
