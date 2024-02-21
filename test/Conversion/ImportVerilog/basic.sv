@@ -236,6 +236,34 @@ module Expressions();
     c = a >>> b;
     // CHECK: moore.shr %u, %b : !moore.int<unsigned>, !moore.int
     c = u >>> b;
+
+    // Assign operators
+
+    // CHECK: moore.add %a, %b : !moore.int
+    a += b;
+    // CHECK: moore.sub %a, %b : !moore.int
+    a -= b;
+    // CHECK: moore.mul %a, %b : !moore.int
+    a *= b;
+    // CHECK: moore.div %f, %d : !moore.integer
+    f /= d;
+    // CHECK: moore.mod %f, %d : !moore.integer
+    f %= d;
+    // CHECK: moore.and %a, %b : !moore.int
+    a &= b;
+    // CHECK: moore.or %a, %b : !moore.int
+    a |= b;
+    // CHECK: moore.xor %a, %b : !moore.int
+    a ^= b;
+    // CHECK: moore.shl %a, %b : !moore.int, !moore.int
+    a <<= b;
+    // CHECK: moore.shl %a, %b : !moore.int, !moore.int
+    a <<<= b;
+    // CHECK: moore.shr %a, %b : !moore.int, !moore.int
+    a >>= b;
+    // CHECK: moore.ashr %a, %b : !moore.int, !moore.int
+    a >>>= b;
+
   end
 endmodule
 

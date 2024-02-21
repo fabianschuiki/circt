@@ -72,7 +72,9 @@ struct ExprVisitor {
 
   Value visit(const slang::ast::AssignmentExpression &expr) {
     auto lhs = context.convertExpression(expr.left());
+    context.pushLValue(&lhs);
     auto rhs = context.convertExpression(expr.right());
+    context.popLValue();
     if (!lhs || !rhs)
       return {};
 
@@ -317,6 +319,15 @@ struct ExprVisitor {
     auto value = expr.getValue().as<uint32_t>().value();
     auto type = context.convertType(*expr.type);
     return builder.create<moore::ConstantOp>(loc, type, value);
+  }
+
+  Value visit(const slang::ast::LValueReferenceExpression &expr) {
+    auto *lvalue = context.getTopLValue();
+    if (nullptr == lvalue) {
+      mlir::emitError(loc, "invalid expression");
+      return {};
+    }
+    return *lvalue;
   }
 
   Value visit(const slang::ast::ConcatenationExpression &expr) {

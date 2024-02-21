@@ -82,6 +82,10 @@ struct Context {
   LogicalResult
   visitCycleDelay(const slang::ast::CycleDelayControl *cycleDelayControl);
 
+  void pushLValue(mlir::Value *lval);
+  void popLValue();
+  mlir::Value *getTopLValue() const;
+
   mlir::ModuleOp intoModuleOp;
   const slang::SourceManager &sourceManager;
   SmallDenseMap<slang::BufferID, StringRef> &bufferFilePaths;
@@ -106,6 +110,9 @@ struct Context {
   /// A list of modules for which the header has been created, but the body has
   /// not been converted yet.
   std::queue<const slang::ast::InstanceBodySymbol *> moduleWorklist;
+
+private:
+  std::vector<mlir::Value *> lvalueStack;
 };
 
 } // namespace ImportVerilog
