@@ -171,3 +171,9 @@ module UnpackedUnsizedDim;
   // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<unsized<logic>>
   logic d0 [];
 endmodule
+
+// CHECK-LABEL: moore.module @String
+module String;
+  // CHECK-NEXT: %s = moore.variable : !moore.string
+  string s;
+endmodule

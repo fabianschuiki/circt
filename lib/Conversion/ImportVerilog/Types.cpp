@@ -58,6 +58,10 @@ struct TypeVisitor {
     return moore::RealType::get(context.getContext(), kind);
   }
 
+  Type visit(const slang::ast::StringType &type) {
+    return moore::StringType::get(context.getContext());
+  }
+
   Type visit(const slang::ast::PredefinedIntegerType &type) {
     moore::IntType::Kind kind;
     switch (type.integerKind) {

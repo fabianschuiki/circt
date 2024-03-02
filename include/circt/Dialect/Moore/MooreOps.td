@@ -283,6 +283,40 @@ def ConstantOp : MooreOp<"constant", [Pure]> {
   ];
 }
 
+def FConstantOp : MooreOp<"fconstant", [Pure]> {
+  let summary = "Produce a constant real value";
+  let description = [{
+    Produces a constant real value.
+
+    Example:
+    ```mlir
+    %0 = moore.fconstant 3.2 : !moore.real
+    ```
+  }];
+  let arguments = (ins F64Attr:$value);
+  let results = (outs RealType:$result);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let builders = [
+    OpBuilder<(ins "Type":$type, "double":$value)>,
+  ];
+}
+
+def StringConstantOp : MooreOp<"string", [Pure, ConstantLike]> {
+  let summary = "Produce a constant string value";
+  let description = [{
+    Produces a constant value of string type.
+
+    Example:
+    ```mlir
+    %0 = moore.string "hello world"
+    ```
+  }];
+  let arguments = (ins StrAttr:$value);
+  let results = (outs SimpleBitVectorType:$result);
+  let assemblyFormat = "$value attr-dict `:` type($result)";
+}
+
 def ConversionOp : MooreOp<"conversion", [Pure]> {
   let summary = "A type conversion";
   let description = [{

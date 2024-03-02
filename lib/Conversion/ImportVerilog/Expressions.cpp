@@ -341,6 +341,18 @@ struct ExprVisitor {
     return convertSVInt(expr.getValue(), type);
   }
 
+  // Handle real literals.
+  Value visit(const slang::ast::RealLiteral &expr) {
+    auto type = context.convertType(*expr.type);
+    return builder.create<moore::FConstantOp>(loc, type, expr.getValue());
+  }
+
+  // Handle string literals.
+  Value visit(const slang::ast::StringLiteral &expr) {
+    auto type = context.convertType(*expr.type);
+    return builder.create<moore::StringConstantOp>(loc, type, expr.getValue());
+  }
+
   Value visit(const slang::ast::LValueReferenceExpression &expr) {
     auto *lvalue = context.getTopLValue();
     if (nullptr == lvalue) {

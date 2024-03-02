@@ -39,6 +39,10 @@ def SingleBitType : MooreType<CPred<[{
     $_self.cast<moore::IntType>().getBitSize() == 1
   }]>, "single bit type", "moore::IntType">;
 
+/// A real type (`shortreal`, `real`, `realtime`).
+def RealType : MooreType<CPred<"$_self.isa<moore::RealType>()">,
+  "real type", "moore::RealType">;
+
 /// A `bit` type.
 def BitType : MooreType<CPred<[{
     $_self.isa<moore::IntType>() &&
