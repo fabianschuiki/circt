@@ -117,6 +117,60 @@ void ConstantOp::build(OpBuilder &builder, OperationState &result, Type type,
 }
 
 //===----------------------------------------------------------------------===//
+// FConstantOp
+//===----------------------------------------------------------------------===//
+
+void FConstantOp::print(OpAsmPrinter &p) {
+  p << " ";
+  p.printAttributeWithoutType(getValueAttr());
+  p.printOptionalAttrDict((*this)->getAttrs(), /*elidedAttrs=*/{"value"});
+  p << " : ";
+  p.printType(getType());
+}
+
+ParseResult FConstantOp::parse(OpAsmParser &parser, OperationState &result) {
+  double value;
+  RealType type;
+
+  if (parser.parseFloat(value) ||
+      parser.parseOptionalAttrDict(result.attributes) || parser.parseColon() ||
+      parser.parseType(type))
+    return failure();
+
+  auto attrType = mlir::FloatType::getF64(parser.getContext());
+  if (type.getKind() == RealType::Kind::ShortReal) {
+    attrType = mlir::FloatType::getF32(parser.getContext());
+  }
+  auto attrValue = FloatAttr::get(attrType, value);
+
+  result.addAttribute("value", attrValue);
+  result.addTypes(type);
+  return success();
+}
+
+LogicalResult FConstantOp::verify() {
+  auto realSize = getType().getBitSize();
+  auto width = getValue()
+                   .bitcastToAPInt()
+                   .getBitWidth(); // cast to APInt to get num bits
+  if (width != realSize)
+    return emitError("attribute width ")
+           << width << " does not match return type's width " << realSize;
+  return success();
+}
+
+// Builds a floating point constant
+void FConstantOp::build(OpBuilder &builder, OperationState &result, Type type,
+                        double value) {
+  auto realType = type.cast<RealType>();
+  mlir::Type floatType = builder.getF64Type();
+  if (realType.getKind() == RealType::Kind::ShortReal) {
+    floatType = builder.getF32Type();
+  }
+  build(builder, result, type, builder.getFloatAttr(floatType, value));
+}
+
+//===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
 

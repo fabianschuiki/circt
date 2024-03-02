@@ -100,6 +100,13 @@ module Expressions;
   bit x;
   logic y;
 
+  // CHECK: %r = moore.variable : !moore.real
+  real r;
+  initial begin
+    // CHECK: moore.fconstant 1.000000e+00 : !moore.real
+    r = 1.0;
+  end
+
   initial begin
     // CHECK: moore.constant 0 : !moore.packed<range<bit, 31:0>>
     c = '0;
@@ -323,6 +330,19 @@ module Conversion;
   // CHECK: [[TMP:%.+]] = moore.conversion %b : !moore.int -> !moore.packed<range<bit<signed>, 18:0>>
   // CHECK: %e = moore.variable [[TMP]]
   bit signed [18:0] e = 19'(b);
+
+  // String conversion.
+  // CHECK: [[TMP0:%.+]] = moore.string "hello world" : !moore.packed<range<bit, 87:0>>
+  // CHECK: [[TMP1:%.+]] = moore.conversion [[TMP0]] : !moore.packed<range<bit, 87:0>> -> !moore.string
+  // CHECK: [[s:%.+]] = moore.variable [[TMP1]] : !moore.string
+  string s = "hello world";
+
+  // Short Real conversion
+  // CHECK: [[const:%.+]] = moore.fconstant 5.330000e+00 : !moore.real
+  // CHECK: [[TMP:%.+]] = moore.conversion [[const]] : !moore.real -> !moore.shortreal
+  // CHECK: %sr = moore.variable [[TMP]] : !moore.shortreal
+  shortreal sr = 5.33;
+
 endmodule
 
 // CHECK-LABEL: moore.module @Statements
