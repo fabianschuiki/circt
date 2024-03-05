@@ -66,6 +66,21 @@ convertProcedureKind(slang::ast::ProceduralBlockKind kind) {
   llvm_unreachable("all procedure kinds handled");
 }
 
+static moore::Direction
+convertPortDirection(slang::ast::ArgumentDirection direction) {
+  switch (direction) {
+  case slang::ast::ArgumentDirection::In:
+    return moore::Direction::In;
+  case slang::ast::ArgumentDirection::InOut:
+    return moore::Direction::InOut;
+  case slang::ast::ArgumentDirection::Out:
+    return moore::Direction::Out;
+  case slang::ast::ArgumentDirection::Ref:
+    return moore::Direction::Ref;
+  }
+  llvm_unreachable("all port direction handled");
+}
+
 namespace {
 struct MemberVisitor {
   Context &context;
@@ -160,10 +175,8 @@ struct MemberVisitor {
     auto loweredType = context.convertType(portNode.getType());
     if (!loweredType)
       return failure();
-    // TODO: Fix the `static_cast` here.
-    builder.create<moore::PortOp>(
-        loc, builder.getStringAttr(portNode.name),
-        static_cast<moore::Direction>(portNode.direction));
+    builder.create<moore::PortOp>(loc, builder.getStringAttr(portNode.name),
+                                  convertPortDirection(portNode.direction));
     return success();
   }
 
