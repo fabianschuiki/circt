@@ -17,6 +17,8 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
+#include "mlir/Tools/mlir-translate/Translation.h"
+#include "mlir/Transforms/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
@@ -269,6 +271,11 @@ static LogicalResult executeWithSources(MLIRContext *context,
   if (failed(importVerilog(sourceMgr, context, ts, module.get(), &options)))
     return failure();
 
+  mlir::PassManager pm(context);
+  pm.addPass(createCanonicalizerPass());
+  pm.addPass(createCSEPass());
+  if (failed(pm.run(*module)))
+    return failure();
   // Print the final MLIR.
   module->print(outputFile->os());
   outputFile->keep();

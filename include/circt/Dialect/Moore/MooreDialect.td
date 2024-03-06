@@ -34,6 +34,7 @@ def MooreDialect : Dialect {
     void printType(Type, DialectAsmPrinter &) const override;
   }];
   let useDefaultTypePrinterParser = 0;
+  let hasConstantMaterializer = 1;
 }
 
 #endif // CIRCT_DIALECT_MOORE_MOOREDIALECT

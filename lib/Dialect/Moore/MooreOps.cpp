@@ -12,6 +12,7 @@
 
 #include "circt/Dialect/Moore/MooreOps.h"
 #include "circt/Support/CustomDirectiveImpl.h"
+#include "mlir/Dialect/CommonFolders.h"
 #include "mlir/IR/Builders.h"
 
 using namespace circt;
@@ -114,6 +115,138 @@ void ConstantOp::build(OpBuilder &builder, OperationState &result, Type type,
   auto sbvt = type.cast<UnpackedType>().getSimpleBitVector();
   build(builder, result, type,
         APInt(sbvt.size, (uint64_t)value, /*isSigned=*/true));
+}
+
+mlir::OpFoldResult ConstantOp::fold(ConstantOp::FoldAdaptor adaptor) {
+  return adaptor.getValueAttr();
+}
+
+mlir::OpFoldResult AddOp::fold(AddOp::FoldAdaptor adaptor) {
+  auto type = getType();
+  if (type.getDomain() == moore::Domain::FourValued) {
+    // TODO: handle fourValue fold
+    return nullptr;
+  }
+  auto lhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[0]);
+  auto rhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[1]);
+  if (!lhs || !rhs) {
+    return nullptr;
+  }
+  // Fold `add(x, 0) -> 0`.
+  if (rhs.getValue().isZero()) {
+    return getLhs();
+  }
+  if (lhs.getValue().isZero()) {
+    return getRhs();
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult SubOp::fold(SubOp::FoldAdaptor adaptor) {
+  auto type = getType();
+  if (type.getDomain() == moore::Domain::FourValued) {
+    // TODO: handle fourValue fold
+    return nullptr;
+  }
+  auto lhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[0]);
+  auto rhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[1]);
+  if (!lhs || !rhs) {
+    return nullptr;
+  }
+  // Fold `sub(x, 0) -> x`.
+  if (rhs.getValue().isZero()) {
+    return getLhs();
+  }
+
+  return nullptr;
+}
+
+mlir::OpFoldResult AndOp::fold(AndOp::FoldAdaptor adaptor) {
+  auto type = getType();
+  if (type.getDomain() == moore::Domain::FourValued) {
+    // TODO: handle fourValue fold
+    return nullptr;
+  }
+  auto lhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[0]);
+  auto rhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[1]);
+  if (!lhs || !rhs) {
+    return nullptr;
+  }
+  // Fold `and(x, 0) -> 0`.
+  if (rhs.getValue().isZero()) {
+    return getRhs();
+  }
+  if (lhs.getValue().isZero()) {
+    return getLhs();
+  }
+
+  // Fold `and(x,'1) -> x`
+  if (rhs.getValue().isMaxValue()) {
+    return getLhs();
+  }
+  if (lhs.getValue().isMaxValue()) {
+    return getRhs();
+  }
+
+  // Fold `and(x,x) -> x`
+  if (rhs.getValue() == lhs.getValue()) {
+    return getLhs();
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult OrOp::fold(OrOp::FoldAdaptor adaptor) {
+  auto type = getType();
+  if (type.getDomain() == moore::Domain::FourValued) {
+    // TODO: handle fourValue fold
+    return nullptr;
+  }
+  auto lhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[0]);
+  auto rhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[1]);
+  if (!lhs || !rhs) {
+    return nullptr;
+  }
+
+  // Fold `or(x, '1) -> '1`
+  if (lhs.getValue().isMaxValue()) {
+    return getLhs();
+  }
+  if (rhs.getValue().isMaxValue()) {
+    return getRhs();
+  }
+
+  // Fold `or(x,0) -> x`
+  if (rhs.getValue().isZero()) {
+    return getLhs();
+  }
+  if (lhs.getValue().isZero()) {
+    return getRhs();
+  }
+
+  return nullptr;
+}
+
+mlir::OpFoldResult XorOp::fold(XorOp::FoldAdaptor adaptor) {
+  auto type = getType();
+  if (type.getDomain() == moore::Domain::FourValued) {
+    // TODO: handle fourValue fold
+    return nullptr;
+  }
+  auto lhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[0]);
+  auto rhs = dyn_cast<mlir::IntegerAttr>(adaptor.getOperands()[1]);
+  if (!lhs || !rhs) {
+    return nullptr;
+  }
+
+  // Fold `xor(x, 0) -> x`
+  if (rhs.getValue().isZero()) {
+    return getLhs();
+  }
+  if (lhs.getValue().isZero()) {
+    return getRhs();
+  }
+
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//

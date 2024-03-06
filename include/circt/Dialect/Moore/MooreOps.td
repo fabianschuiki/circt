@@ -271,12 +271,13 @@ def EventControlOp : MooreOp<"event", [
 // Expressions
 //===----------------------------------------------------------------------===//
 
-def ConstantOp : MooreOp<"constant", [Pure]> {
+def ConstantOp : MooreOp<"constant", [Pure, ConstantLike]> {
   let summary = "A constant integer value";
   let arguments = (ins APIntAttr:$value);
   let results = (outs SimpleBitVectorType:$result);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
+  let hasFolder = 1;
   let builders = [
     OpBuilder<(ins "Type":$type, "const APInt &":$value)>,
     OpBuilder<(ins "Type":$type, "int64_t":$value)>,
@@ -416,6 +417,7 @@ class BinaryOpBase<string mnemonic, list<Trait> traits = []> :
 
 def AddOp : BinaryOpBase<"add", [Commutative]> {
   let summary = "Addition";
+  let hasFolder =1;
   let description = [{
     Add the operands. If any bit in the two operands is Z or X, all bits in the
     result are X.
@@ -426,6 +428,7 @@ def AddOp : BinaryOpBase<"add", [Commutative]> {
 
 def SubOp : BinaryOpBase<"sub"> {
   let summary = "Subtraction";
+  let hasFolder =1;
   let description = [{
     Subtract the right-hand side from the left-hand side operand. If any bit in
     the two operands is Z or X, all bits in the result are X.
@@ -479,6 +482,7 @@ def ModOp : BinaryOpBase<"mod"> {
 
 def AndOp : BinaryOpBase<"and", [Commutative]> {
   let summary = "Bitwise AND operation";
+  let hasFolder = 1;
   let description = [{
     Applies the boolean AND operation to each pair of corresponding bits in the
     left- and right-hand side operand. Corresponds to the `&` operator.
@@ -496,6 +500,7 @@ def AndOp : BinaryOpBase<"and", [Commutative]> {
 
 def OrOp : BinaryOpBase<"or", [Commutative]> {
   let summary = "Bitwise OR operation";
+  let hasFolder = 1;
   let description = [{
     Applies the boolean OR operation to each pair of corresponding bits in the
     left- and right-hand side operand. Corresponds to the `|` operator.
@@ -513,6 +518,7 @@ def OrOp : BinaryOpBase<"or", [Commutative]> {
 
 def XorOp : BinaryOpBase<"xor", [Commutative]> {
   let summary = "Bitwise XOR operation";
+  let hasFolder = 1;
   let description = [{
     Applies the boolean XOR operation to each pair of corresponding bits in the
     left- and right-hand side operand. Corresponds to the `^` operator.
