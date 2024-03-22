@@ -113,7 +113,13 @@ struct MemberVisitor {
   LogicalResult visit(const slang::ast::TypeAliasType &) { return success(); }
 
   // Skip parameters. The AST is already monomorphized.
-  LogicalResult visit(const slang::ast::ParameterSymbol &) { return success(); }
+  LogicalResult visit(const slang::ast::ParameterSymbol &paramNode) {
+    auto type = context.convertType(paramNode.getType());
+    auto constant = paramNode.getValue().integer().as<int64_t>().value();
+    auto value = builder.create<moore::ConstantOp>(loc, type, constant);
+    context.valueSymbols.insert(&paramNode, value);
+    return success();
+  }
   LogicalResult visit(const slang::ast::TypeParameterSymbol &) {
     return success();
   }

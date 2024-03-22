@@ -63,8 +63,10 @@ struct StmtVisitor {
         return failure();
     }
 
-    builder.create<moore::VariableOp>(loc, type,
-                                      builder.getStringAttr(var.name), initial);
+    auto varOp = builder.create<moore::VariableOp>(
+        loc, type, builder.getStringAttr(var.name), initial);
+    context.valueSymbols.insertIntoScope(context.valueSymbols.getCurScope(),
+                                         &var, varOp);
     return success();
   }
 
