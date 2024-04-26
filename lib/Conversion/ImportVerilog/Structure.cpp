@@ -109,10 +109,45 @@ struct MemberVisitor {
     if (!targetModule)
       return failure();
 
+    const auto *instBodySymbol =
+        instNode.body.as_if<slang::ast::InstanceBodySymbol>();
+    for (auto &member : instBodySymbol->members())
+      if (member.kind == slang::ast::SymbolKind::Port) {
+        const auto *p = member.as_if<slang::ast::PortSymbol>();
+        context.instancePortInfo[&p->location] = p->direction;
+      }
+
+    SmallVector<Value> inPorts, outPorts;
+    SmallVector<Attribute> inputNames, outputNames;
+    for (auto *connections : instNode.getPortConnections()) {
+      Value port;
+      if (auto *expr = connections->getExpression()) {
+        if (auto *aexpr = expr->as_if<slang::ast::AssignmentExpression>()) {
+          port = context.convertExpression(aexpr->left());
+        } else {
+
+          port = context.convertExpression(*expr);
+        }
+        auto it = context.instancePortInfo.find(&connections->port.location);
+        if (it->second != slang::ast::ArgumentDirection::Out) {
+          inPorts.push_back(port);
+          inputNames.push_back(
+              StringAttr::get(builder.getContext(), connections->port.name));
+        } else {
+          outPorts.push_back(port);
+          outputNames.push_back(
+              StringAttr::get(builder.getContext(), connections->port.name));
+        }
+      } else {
+        // TODO: connect interface to mudule instance.
+        return failure();
+      }
+    }
     builder.create<moore::InstanceOp>(
         loc, builder.getStringAttr(instNode.name),
-        FlatSymbolRefAttr::get(targetModule.getSymNameAttr()));
-
+        FlatSymbolRefAttr::get(SymbolTable::getSymbolName(targetModule)),
+        inPorts, outPorts, ArrayAttr::get(builder.getContext(), inputNames),
+        ArrayAttr::get(builder.getContext(), outputNames));
     return success();
   }
 
@@ -283,21 +318,14 @@ Context::convertModuleHeader(const slang::ast::InstanceBodySymbol *module) {
   // Handle the port list.
   for (auto *symbol : module->getPortList()) {
     auto portLoc = convertLocation(symbol->location);
-    auto *port = symbol->as_if<slang::ast::PortSymbol>();
-    if (!port) {
+    switch (symbol->kind) {
+    case slang::ast::SymbolKind::Port:
+      break;
+      // If an unsupported port is encountered, discard the error message.
+    default:
       mlir::emitError(portLoc, "unsupported module port: `")
           << symbol->name << "` (" << slang::ast::toString(symbol->kind) << ")";
       return {};
-    }
-    LLVM_DEBUG(llvm::dbgs() << "- " << port->name << " "
-                            << slang::ast::toString(port->direction) << "\n");
-    if (auto *intSym = port->internalSymbol) {
-      LLVM_DEBUG(llvm::dbgs() << "  - Internal symbol " << intSym->name << " ("
-                              << slang::ast::toString(intSym->kind) << ")\n");
-    }
-    if (auto *expr = port->getInternalExpr()) {
-      LLVM_DEBUG(llvm::dbgs() << "  - Internal expr "
-                              << slang::ast::toString(expr->kind) << "\n");
     }
   }
 
