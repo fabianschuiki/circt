@@ -1,0 +1,74 @@
+//===- Tokens.def - Tin lexer tokens ----------------------------*- C++ -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef TOK_ANY
+#define TOK_ANY(NAME)
+#endif
+
+#ifndef TOK_KEYWORD
+#define TOK_KEYWORD(IDENT) TOK_ANY(kw_##IDENT)
+#endif
+
+#ifndef TOK_SYMBOL
+#define TOK_SYMBOL(NAME, SPELLING) TOK_ANY(NAME)
+#endif
+
+#ifndef TOK_SYMBOL1
+#define TOK_SYMBOL1(NAME, SPELLING) TOK_SYMBOL(NAME, SPELLING)
+#endif
+
+#ifndef TOK_SYMBOL2
+#define TOK_SYMBOL2(NAME, SPELLING) TOK_SYMBOL(NAME, SPELLING)
+#endif
+
+#ifndef TOK_DELIMITER
+#define TOK_DELIMITER(NAME, OPEN, CLOSE)                                       \
+  TOK_SYMBOL1(l##NAME, OPEN)                                                   \
+  TOK_SYMBOL1(r##NAME, CLOSE)
+#endif
+
+TOK_ANY(ident)
+
+TOK_DELIMITER(paren, "(", ")")
+TOK_DELIMITER(curly, "{", "}")
+TOK_DELIMITER(brack, "[", "]")
+
+TOK_SYMBOL1(period, ".")
+TOK_SYMBOL1(comma, ",")
+TOK_SYMBOL1(colon, ":")
+TOK_SYMBOL1(semicolon, ";")
+TOK_SYMBOL1(emark, "!")
+TOK_SYMBOL1(qmark, "?")
+
+TOK_SYMBOL1(lt, "<")
+TOK_SYMBOL1(gt, ">")
+TOK_SYMBOL2(eq, "==")
+TOK_SYMBOL2(neq, "!=")
+TOK_SYMBOL2(geq, ">=")
+TOK_SYMBOL2(leq, "<=")
+
+TOK_SYMBOL1(add, "+")
+TOK_SYMBOL1(sub, "-")
+TOK_SYMBOL1(mul, "*")
+TOK_SYMBOL1(div, "/")
+TOK_SYMBOL1(mod, "%")
+
+TOK_SYMBOL2(shl, "<<")
+TOK_SYMBOL2(shr, ">>")
+
+TOK_KEYWORD(mod)
+TOK_KEYWORD(fn)
+TOK_KEYWORD(in)
+TOK_KEYWORD(out)
+
+#undef TOK_ANY
+#undef TOK_KEYWORD
+#undef TOK_SYMBOL
+#undef TOK_SYMBOL1
+#undef TOK_SYMBOL2
+#undef TOK_DELIMITER

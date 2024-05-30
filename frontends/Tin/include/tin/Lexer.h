@@ -1,0 +1,62 @@
+//===- Lexer.h - Lexer for the Tin language -------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#pragma once
+#include "circt/Support/LLVM.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/ADT/StringMap.h"
+
+namespace circt {
+namespace tin {
+
+enum class TokenKind {
+  eof,
+  error,
+#define TOK_ANY(NAME) NAME,
+#include "tin/Tokens.def"
+};
+
+StringRef symbolizeTokenKind(TokenKind kind);
+
+struct Token {
+  StringRef spelling;
+  TokenKind kind;
+
+  /// Check whether the token represents the end of the input file.
+  explicit operator bool() const { return kind != TokenKind::eof; }
+};
+
+// Allow `Token` to be printed.
+template <typename T>
+static T &operator<<(T &os, const Token &token) {
+  os << symbolizeTokenKind(token.kind);
+  if (token.kind == TokenKind::ident)
+    os << " `" << token.spelling << "`";
+  return os;
+}
+
+class Lexer {
+public:
+  Lexer(MLIRContext *context, StringRef text, StringAttr filename);
+  Token next();
+  Location locationOfSubstring(StringRef substring);
+
+  MLIRContext *context;
+  StringRef fullText;
+  StringAttr filename;
+
+private:
+  /// The remaining text to be tokenized.
+  StringRef text;
+
+  /// A reference to a statically-allocated lookup table for keywords.
+  llvm::StringMap<TokenKind> &keywordTable;
+};
+
+} // namespace tin
+} // namespace circt

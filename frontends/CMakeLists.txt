@@ -6,8 +6,10 @@
 #
 # ===-----------------------------------------------------------------------===//
 
-set (CIRCT_KNOWN_FRONTENDS
-  PyCDE)
+set(CIRCT_KNOWN_FRONTENDS
+  PyCDE
+  Tin
+)
 set(CIRCT_ENABLE_FRONTENDS "" CACHE STRING "List of frontends to enable")
 foreach(proj ${CIRCT_KNOWN_FRONTENDS})
   string(TOUPPER "${proj}" upper_proj)
