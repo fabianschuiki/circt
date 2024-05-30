@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "tin/Parser.h"
+#include "tin/AST.h"
 
 #include "mlir/IR/Diagnostics.h"
 
@@ -24,7 +25,6 @@ Location Parser::loc() { return lexer.locationOfSubstring(token.spelling); }
 Token Parser::consume() {
   auto consumedToken = token;
   token = lexer.next();
-  // lastloc = x;
   return consumedToken;
 }
 
