@@ -1,0 +1,7 @@
+// RUN: tinc %s
+
+mod Foo() {
+}
+
+mod Bar() {
+}

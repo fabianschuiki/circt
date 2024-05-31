@@ -12,3 +12,5 @@ target_link_libraries(tinc
   MLIRParser
   MLIRSupport
 )
+
+add_subdirectory(test)
