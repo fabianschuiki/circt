@@ -10,15 +10,18 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "tin/Codegen.h"
 #include "tin/Lexer.h"
 #include "tin/Parser.h"
 
 #include "circt/Support/LLVM.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include <memory>
 #include <system_error>
 
@@ -33,6 +36,10 @@ namespace cl = llvm::cl;
 struct Opt {
   cl::opt<std::string> inputFilename{cl::Positional, cl::desc("<input file>"),
                                      cl::init("-"), cl::value_desc("filename")};
+
+  cl::opt<std::string> outputFilename{
+      "o", cl::desc("Output filename (`-` for stdout)"),
+      cl::value_desc("filename"), cl::init("-")};
 };
 Opt opt;
 
@@ -56,20 +63,30 @@ LogicalResult executeCompiler(MLIRContext *context) {
   Lexer lexer(context, fileOrError.get()->getBuffer(),
               StringAttr::get(context, opt.inputFilename));
 
-  // Create a parser.
-  Parser parser(lexer);
-  if (failed(parser.parseRoot()))
+  // Create a parser and parse the input into an AST.
+  AST ast;
+  Parser parser(lexer, ast);
+  auto *root = parser.parseRoot();
+  if (!root)
+    return failure();
+  ast.roots.push_back(root);
+
+  // Convert the AST to MLIR.
+  auto module = convertToMLIR(context, ast);
+  if (!module)
     return failure();
 
-  // while (auto token = lexer.next()) {
-  //   if (token.kind == TokenKind::error)
-  //     return failure();
-  //   llvm::errs() << "- " << token << "\n";
-  // }
+  // Open the output file.
+  std::string errorMessage;
+  auto outputFile = mlir::openOutputFile(opt.outputFilename, &errorMessage);
+  if (!outputFile) {
+    mlir::emitError(UnknownLoc::get(context)) << errorMessage << "\n";
+    return failure();
+  }
 
-  // auto moduleAST = parseInputFile(opt.inputFilename);
-  // if (failed(moduleAST))
-  //   return failure();
+  // Print the final MLIR.
+  module->print(outputFile->os());
+  outputFile->keep();
   return success();
 }
 

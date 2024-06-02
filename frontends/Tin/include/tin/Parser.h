@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "tin/AST.h"
 #include "tin/Lexer.h"
 
 #include "circt/Support/LLVM.h"
@@ -17,18 +18,20 @@ namespace tin {
 
 class Parser {
 public:
-  Parser(Lexer &lexer);
+  Parser(Lexer &lexer, AST &ast);
 
-  LogicalResult parseRoot();
-  LogicalResult parseItem();
+  ast::Root *parseRoot();
+  ast::Item *parseItem();
   LogicalResult parseStatement();
 
   Lexer &lexer;
+  AST &ast;
 
 private:
   Token token;
 
   Location loc();
+  Location loc(const Token &token);
   Token consume();
   Token consumeIf(TokenKind kind);
   Token require(TokenKind kind, const Twine &msg = {});

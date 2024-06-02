@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "tin/Parser.h"
-#include "tin/AST.h"
 
 #include "mlir/IR/Diagnostics.h"
 
@@ -18,9 +17,15 @@ using namespace tin;
 // Parser
 //===----------------------------------------------------------------------===//
 
-Parser::Parser(Lexer &lexer) : lexer(lexer) { token = lexer.next(); }
+Parser::Parser(Lexer &lexer, AST &ast) : lexer(lexer), ast(ast) {
+  token = lexer.next();
+}
 
-Location Parser::loc() { return lexer.locationOfSubstring(token.spelling); }
+Location Parser::loc() { return loc(token); }
+
+Location Parser::loc(const Token &token) {
+  return lexer.locationOfSubstring(token.spelling);
+}
 
 Token Parser::consume() {
   auto consumedToken = token;
@@ -50,30 +55,45 @@ Token Parser::require(TokenKind kind, const Twine &msg) {
 // Grammar
 //===----------------------------------------------------------------------===//
 
-LogicalResult Parser::parseRoot() {
-  while (token)
-    if (failed(parseItem()))
-      return failure();
-  return success();
+ast::Root *Parser::parseRoot() {
+  SmallVector<ast::Item *> items;
+  while (token) {
+    auto item = parseItem();
+    if (!item)
+      return {};
+    items.push_back(item);
+  }
+
+  return &ast.create<ast::Root>({ast.array(items)});
 }
 
-LogicalResult Parser::parseItem() {
+ast::Item *Parser::parseItem() {
   // Parse module definitions.
   if (auto kw = consumeIf(TokenKind::kw_mod)) {
     auto name = require(TokenKind::ident, "module name");
-    require(TokenKind::lparen);
-    require(TokenKind::rparen);
-    require(TokenKind::lcurly);
+
+    // Parse the ports.
+    if (!require(TokenKind::lparen))
+      return {};
+    if (!require(TokenKind::rparen))
+      return {};
+
+    // Parse the body.
+    if (!require(TokenKind::lcurly))
+      return {};
     while (notAtDelimiter(TokenKind::rcurly))
       if (failed(parseStatement()))
-        return failure();
-    require(TokenKind::rcurly);
-    llvm::errs() << "found a module named " << name.spelling << "!\n";
-    return success();
+        return {};
+    if (!require(TokenKind::rcurly))
+      return {};
+
+    return &ast.create<ast::ModItem>(
+        {{ast::Item::Kind::Mod, loc(name)},
+         StringAttr::get(lexer.context, name.spelling)});
   }
 
-  // llvm::errs() << token.spelling << "\n";
-  return mlir::emitError(loc(), "expected item, found ") << token;
+  mlir::emitError(loc(), "expected item, found ") << token;
+  return {};
 }
 
 LogicalResult Parser::parseStatement() {
