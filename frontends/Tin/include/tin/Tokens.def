@@ -33,6 +33,7 @@
 #endif
 
 TOK_ANY(ident)
+TOK_ANY(num_lit)
 
 TOK_DELIMITER(paren, "(", ")")
 TOK_DELIMITER(curly, "{", "}")

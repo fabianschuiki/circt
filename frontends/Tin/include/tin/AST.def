@@ -18,10 +18,18 @@
 #define AST_STMT(NAME) AST_ANY(NAME##Stmt)
 #endif
 
+#ifndef AST_EXPR
+#define AST_EXPR(NAME) AST_ANY(NAME##Expr)
+#endif
+
 AST_ITEM(Mod)
 
 AST_STMT(Empty)
+AST_STMT(Expr)
+
+AST_EXPR(NumLit)
 
 #undef AST_ANY
 #undef AST_ITEM
 #undef AST_STMT
+#undef AST_EXPR

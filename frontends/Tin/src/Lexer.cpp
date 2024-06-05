@@ -26,6 +26,8 @@ StringRef tin::symbolizeTokenKind(TokenKind kind) {
     return "<error>";
   case TokenKind::ident:
     return "identifier";
+  case TokenKind::num_lit:
+    return "number literal";
 
 #define TOK_KEYWORD(IDENT)                                                     \
   case TokenKind::kw_##IDENT:                                                  \
@@ -161,6 +163,13 @@ Token Lexer::next() {
     if (auto it = keywordTable.find(ident); it != keywordTable.end())
       kind = it->second;
     return {ident, kind};
+  }
+
+  // Parse number literals.
+  if (is_digit(text[0])) {
+    auto num = text.take_while(is_ident);
+    text = text.drop_front(num.size());
+    return {num, TokenKind::num_lit};
   }
 
   // If we get here we didn't recognize what's in the input text.

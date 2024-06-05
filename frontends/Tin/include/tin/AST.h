@@ -15,6 +15,8 @@ namespace tin {
 namespace ast {
 
 struct Item;
+struct Stmt;
+struct Expr;
 
 /// A root node in the AST, corresponding to a parsed file.
 struct Root {
@@ -27,7 +29,6 @@ struct Item {
 #define AST_ITEM(NAME) NAME,
 #include "tin/AST.def"
   };
-
   const Kind kind;
   Location loc;
 };
@@ -36,6 +37,7 @@ struct Item {
 struct ModItem : public Item {
   static bool classof(const Item *item) { return item->kind == Kind::Mod; }
   StringAttr name;
+  ArrayRef<Stmt *> stmts;
 };
 
 /// Base class for all statements.
@@ -44,7 +46,6 @@ struct Stmt {
 #define AST_STMT(NAME) NAME,
 #include "tin/AST.def"
   };
-
   const Kind kind;
   Location loc;
 };
@@ -52,6 +53,28 @@ struct Stmt {
 /// An empty statement.
 struct EmptyStmt : public Stmt {
   static bool classof(const Stmt *stmt) { return stmt->kind == Kind::Empty; }
+};
+
+/// An expression statement.
+struct ExprStmt : public Stmt {
+  static bool classof(const Stmt *stmt) { return stmt->kind == Kind::Expr; }
+  Expr *expr;
+};
+
+/// Base class for all expressions.
+struct Expr {
+  enum class Kind {
+#define AST_EXPR(NAME) NAME,
+#include "tin/AST.def"
+  };
+  const Kind kind;
+  Location loc;
+};
+
+/// An number literal expression.
+struct NumLitExpr : public Expr {
+  static bool classof(const Expr *expr) { return expr->kind == Kind::NumLit; }
+  APInt value;
 };
 
 } // namespace ast

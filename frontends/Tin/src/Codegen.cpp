@@ -45,7 +45,10 @@ struct Codegen {
 
   LogicalResult visit(ast::Item &item) {
     return TypeSwitch<ast::Item *, LogicalResult>(&item)
-        .Case<ast::ModItem>([&](auto *item) { return visit(*item); })
+        .Case<
+#define AST_ITEM(NAME) ast::NAME##Item,
+#include "tin/AST.def"
+            ast::Item>([&](auto *item) { return visit(*item); })
         .Default([&](auto *) {
           return mlir::emitError(item.loc) << "item codegen not implemented";
         });
@@ -55,6 +58,46 @@ struct Codegen {
     auto mod = builder.create<hw::HWModuleOp>(item.loc, item.name,
                                               ArrayRef<hw::PortInfo>{});
     symbolTable.insert(mod);
+
+    OpBuilder::InsertionGuard g(builder);
+    builder.setInsertionPointToStart(mod.getBodyBlock());
+
+    for (auto *stmt : item.stmts)
+      if (failed(visit(*stmt)))
+        return failure();
+
+    return success();
+  }
+
+  LogicalResult visit(ast::Stmt &stmt) {
+    return TypeSwitch<ast::Stmt *, LogicalResult>(&stmt)
+        .Case<
+#define AST_STMT(NAME) ast::NAME##Stmt,
+#include "tin/AST.def"
+            ast::Stmt>([&](auto *stmt) { return visit(*stmt); })
+        .Default([&](auto *) {
+          return mlir::emitError(stmt.loc)
+                 << "statement codegen not implemented";
+        });
+  }
+
+  LogicalResult visit(ast::EmptyStmt &stmt) { return success(); }
+  LogicalResult visit(ast::ExprStmt &stmt) { return visit(*stmt.expr); }
+
+  LogicalResult visit(ast::Expr &expr) {
+    return TypeSwitch<ast::Expr *, LogicalResult>(&expr)
+        .Case<
+#define AST_EXPR(NAME) ast::NAME##Expr,
+#include "tin/AST.def"
+            ast::Expr>([&](auto *expr) { return visit(*expr); })
+        .Default([&](auto *) {
+          return mlir::emitError(expr.loc)
+                 << "expression codegen not implemented";
+        });
+  }
+
+  LogicalResult visit(ast::NumLitExpr &expr) {
+    builder.create<hw::ConstantOp>(expr.loc, expr.value);
     return success();
   }
 };

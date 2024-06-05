@@ -22,7 +22,9 @@ public:
 
   ast::Root *parseRoot();
   ast::Item *parseItem();
+  PointerUnion<ast::Stmt *, ast::Expr *> parseStmtOrExpr();
   ast::Stmt *parseStmt();
+  ast::Expr *parseExpr();
 
   Lexer &lexer;
   AST &ast;

@@ -35,7 +35,7 @@ struct Token {
 template <typename T>
 static T &operator<<(T &os, const Token &token) {
   os << symbolizeTokenKind(token.kind);
-  if (token.kind == TokenKind::ident)
+  if (token.kind == TokenKind::ident || token.kind == TokenKind::num_lit)
     os << " `" << token.spelling << "`";
   return os;
 }

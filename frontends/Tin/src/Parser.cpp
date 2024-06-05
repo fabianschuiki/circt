@@ -9,9 +9,19 @@
 #include "tin/Parser.h"
 
 #include "mlir/IR/Diagnostics.h"
+#include "llvm/ADT/SmallString.h"
 
 using namespace circt;
 using namespace tin;
+
+static bool isValidDigitForBase(char c, int base) {
+  if (c >= '0' && c <= '9')
+    return (c - '0') < base;
+  c = std::tolower(c);
+  if (c >= 'a' && c <= 'f')
+    return (c - 'a' + 10) < base;
+  return false;
+}
 
 //===----------------------------------------------------------------------===//
 // Parser
@@ -93,18 +103,81 @@ ast::Item *Parser::parseItem() {
 
     return &ast.create<ast::ModItem>(
         {{ast::Item::Kind::Mod, loc(name)},
-         StringAttr::get(lexer.context, name.spelling)});
+         StringAttr::get(lexer.context, name.spelling),
+         ast.array(stmts)});
   }
 
   mlir::emitError(loc(), "expected item, found ") << token;
   return {};
 }
 
-ast::Stmt *Parser::parseStmt() {
+PointerUnion<ast::Stmt *, ast::Expr *> Parser::parseStmtOrExpr() {
   // Ignore stray semicolons.
   if (auto token = consumeIf(TokenKind::semicolon))
     return &ast.create<ast::EmptyStmt>({{ast::Stmt::Kind::Empty, loc(token)}});
 
-  mlir::emitError(loc(), "expected statement, found ") << token;
+  // Otherwise this is a statement that starts with an expression.
+  return parseExpr();
+}
+
+ast::Stmt *Parser::parseStmt() {
+  auto node = parseStmtOrExpr();
+  if (!node)
+    return {};
+
+  // If we've parsed a statement, return it.
+  if (auto *stmt = dyn_cast<ast::Stmt *>(node))
+    return stmt;
+  auto *expr = cast<ast::Expr *>(node);
+
+  // Otherwise we've parsed an expression, also parse the subsequent semicolon
+  // if the expression requires one. Some expressions, like `{...}` don't need a
+  // semicolon.
+  if (!require(TokenKind::semicolon))
+    return {};
+
+  return &ast.create<ast::ExprStmt>({{ast::Stmt::Kind::Expr, expr->loc}, expr});
+}
+
+ast::Expr *Parser::parseExpr() {
+  // Parse number literals.
+  if (auto lit = consumeIf(TokenKind::num_lit)) {
+    auto spelling = lit.spelling;
+
+    // Determine the base.
+    unsigned base = 10;
+    if (spelling.consume_front("0b"))
+      base = 2;
+    else if (spelling.consume_front("0o"))
+      base = 8;
+    else if (spelling.consume_front("0x"))
+      base = 16;
+
+    // Filter out `_` and check for invalid digits for the given base.
+    SmallString<32> digits;
+    digits.reserve(spelling.size());
+    for (unsigned i = 0, e = spelling.size(); i != e; ++i) {
+      if (spelling[i] == '_')
+        continue;
+      if (!isValidDigitForBase(spelling[i], base)) {
+        mlir::emitError(lexer.locationOfSubstring(spelling.substr(i)))
+            << "`" << spelling[i] << "` is not a valid base-" << base
+            << " digit";
+        return {};
+      }
+      digits.push_back(spelling[i]);
+    }
+    if (digits.empty()) {
+      mlir::emitError(loc(lit), "number literal has no digits");
+      return {};
+    }
+
+    APInt value;
+    assert(!digits.str().getAsInteger(base, value));
+    return &ast.create<ast::NumLitExpr>(
+        {{ast::Expr::Kind::NumLit, loc(lit)}, value});
+  }
+
+  mlir::emitError(loc(), "expected expression, found ") << token;
   return {};
 }

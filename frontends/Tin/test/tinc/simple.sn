@@ -4,6 +4,17 @@
 mod Foo() {
   // Stray semicolons are ignored.
   ;
+
+  // CHECK: hw.constant 42 : i8
+  42;
+  // CHECK: hw.constant 1000 : i16
+  1_000;
+  // CHECK: hw.constant -6 : i4
+  0b0000_1010;
+  // CHECK: hw.constant -1 : i9
+  0o777;
+  // CHECK: hw.constant 19119855 : i28
+  0x0123_beef;
 }
 
 // CHECK: hw.module @Bar()
