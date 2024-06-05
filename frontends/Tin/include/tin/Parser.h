@@ -22,7 +22,7 @@ public:
 
   ast::Root *parseRoot();
   ast::Item *parseItem();
-  LogicalResult parseStatement();
+  ast::Stmt *parseStmt();
 
   Lexer &lexer;
   AST &ast;

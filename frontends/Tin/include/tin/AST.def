@@ -14,7 +14,14 @@
 #define AST_ITEM(NAME) AST_ANY(NAME##Item)
 #endif
 
+#ifndef AST_STMT
+#define AST_STMT(NAME) AST_ANY(NAME##Stmt)
+#endif
+
 AST_ITEM(Mod)
+
+AST_STMT(Empty)
 
 #undef AST_ANY
 #undef AST_ITEM
+#undef AST_STMT

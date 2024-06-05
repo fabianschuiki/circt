@@ -38,6 +38,22 @@ struct ModItem : public Item {
   StringAttr name;
 };
 
+/// Base class for all statements.
+struct Stmt {
+  enum class Kind {
+#define AST_STMT(NAME) NAME,
+#include "tin/AST.def"
+  };
+
+  const Kind kind;
+  Location loc;
+};
+
+/// An empty statement.
+struct EmptyStmt : public Stmt {
+  static bool classof(const Stmt *stmt) { return stmt->kind == Kind::Empty; }
+};
+
 } // namespace ast
 
 /// A container that holds an entire AST and owns its memory.

@@ -81,9 +81,13 @@ ast::Item *Parser::parseItem() {
     // Parse the body.
     if (!require(TokenKind::lcurly))
       return {};
-    while (notAtDelimiter(TokenKind::rcurly))
-      if (failed(parseStatement()))
+    SmallVector<ast::Stmt *> stmts;
+    while (notAtDelimiter(TokenKind::rcurly)) {
+      auto *stmt = parseStmt();
+      if (!stmt)
         return {};
+      stmts.push_back(stmt);
+    }
     if (!require(TokenKind::rcurly))
       return {};
 
@@ -96,6 +100,11 @@ ast::Item *Parser::parseItem() {
   return {};
 }
 
-LogicalResult Parser::parseStatement() {
-  return mlir::emitError(loc(), "expected statement, found ") << token;
+ast::Stmt *Parser::parseStmt() {
+  // Ignore stray semicolons.
+  if (auto token = consumeIf(TokenKind::semicolon))
+    return &ast.create<ast::EmptyStmt>({{ast::Stmt::Kind::Empty, loc(token)}});
+
+  mlir::emitError(loc(), "expected statement, found ") << token;
+  return {};
 }

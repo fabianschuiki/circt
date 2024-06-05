@@ -2,6 +2,8 @@
 
 // CHECK: hw.module @Foo()
 mod Foo() {
+  // Stray semicolons are ignored.
+  ;
 }
 
 // CHECK: hw.module @Bar()
