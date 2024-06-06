@@ -139,10 +139,34 @@ ast::Stmt *Parser::parseStmt() {
   return &ast.create<ast::ExprStmt>({{ast::Stmt::Kind::Expr, expr->loc}, expr});
 }
 
+static std::optional<unsigned> consumeWidthSuffix(StringRef &spelling) {
+  // Seek over the trailing digits.
+  unsigned pos = spelling.size();
+  auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
+  while (pos > 0 && is_digit(spelling[pos - 1]))
+    --pos;
+  if (pos == 0 || pos == spelling.size())
+    return {};
+
+  // Consume `i[0-9]+`.
+  if (spelling[pos - 1] == 'i') {
+    unsigned width;
+    assert(!spelling.substr(pos).getAsInteger(10, width));
+    spelling = spelling.substr(0, pos - 1);
+    return width;
+  }
+
+  return {};
+}
+
 ast::Expr *Parser::parseExpr() {
   // Parse number literals.
   if (auto lit = consumeIf(TokenKind::num_lit)) {
     auto spelling = lit.spelling;
+
+    // Handle the optional `i[0-9]+` type suffix.
+    auto width = consumeWidthSuffix(spelling);
+    auto spellingWithoutSuffix = spelling;
 
     // Determine the base.
     unsigned base = 10;
@@ -172,8 +196,23 @@ ast::Expr *Parser::parseExpr() {
       return {};
     }
 
+    // Parse the integer.
     APInt value;
     assert(!digits.str().getAsInteger(base, value));
+
+    // Resize to the explicit width.
+    if (width.has_value()) {
+      if (value.getActiveBits() > *width) {
+        mlir::emitError(loc(lit))
+            << "integer `" << spellingWithoutSuffix << "` does not fit into "
+            << *width << " bits";
+        return {};
+      }
+      value = value.zextOrTrunc(*width);
+    } else {
+      value = value.zextOrTrunc(value.getActiveBits());
+    }
+
     return &ast.create<ast::NumLitExpr>(
         {{ast::Expr::Kind::NumLit, loc(lit)}, value});
   }

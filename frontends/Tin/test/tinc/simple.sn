@@ -5,15 +5,17 @@ mod Foo() {
   // Stray semicolons are ignored.
   ;
 
-  // CHECK: hw.constant 42 : i8
+  // CHECK: hw.constant -22 : i6
   42;
-  // CHECK: hw.constant 1000 : i16
+  // CHECK: hw.constant 42 : i16
+  42i16;
+  // CHECK: hw.constant -24 : i10
   1_000;
   // CHECK: hw.constant -6 : i4
   0b0000_1010;
   // CHECK: hw.constant -1 : i9
   0o777;
-  // CHECK: hw.constant 19119855 : i28
+  // CHECK: hw.constant -14434577 : i25
   0x0123_beef;
 }
 
