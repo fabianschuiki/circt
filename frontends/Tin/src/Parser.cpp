@@ -159,7 +159,9 @@ static std::optional<unsigned> consumeWidthSuffix(StringRef &spelling) {
   return {};
 }
 
-ast::Expr *Parser::parseExpr() {
+ast::Expr *Parser::parseExpr() { return parsePrefixExpr(); }
+
+ast::Expr *Parser::parsePrimaryExpr() {
   // Parse number literals.
   if (auto lit = consumeIf(TokenKind::num_lit)) {
     auto spelling = lit.spelling;
@@ -217,6 +219,40 @@ ast::Expr *Parser::parseExpr() {
         {{ast::Expr::Kind::NumLit, loc(lit)}, value});
   }
 
+  // Parse parenthesized expressions.
+  if (auto lparen = consumeIf(TokenKind::lparen)) {
+    auto *expr = parseExpr();
+    if (!expr)
+      return {};
+    require(TokenKind::rparen);
+    return &ast.create<ast::ParenExpr>(
+        {{ast::Expr::Kind::Paren, loc(lparen)}, expr});
+  }
+
   mlir::emitError(loc(), "expected expression, found ") << token;
   return {};
+}
+
+ast::Expr *Parser::parsePrefixExpr() {
+  // Parse unary operators.
+  auto parseUnary = [&](ast::UnaryOp op) -> ast::Expr * {
+    auto opToken = consume();
+    auto *arg = parsePrefixExpr();
+    if (!arg)
+      return {};
+    return &ast.create<ast::UnaryExpr>(
+        {{ast::Expr::Kind::Unary, loc(opToken)}, op, arg});
+  };
+
+  switch (token.kind) {
+#define AST_UNARY(NAME, TOKEN)                                                 \
+  case TokenKind::TOKEN:                                                       \
+    return parseUnary(ast::UnaryOp::NAME);
+#include "tin/AST.def"
+  default:
+    break;
+  }
+
+  // Otherwise parse a primary expression.
+  return parsePrimaryExpr();
 }

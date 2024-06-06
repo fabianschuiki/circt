@@ -8,6 +8,7 @@
 
 #include "tin/Codegen.h"
 
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
@@ -45,16 +46,15 @@ struct Codegen {
 
   LogicalResult visit(ast::Item &item) {
     return TypeSwitch<ast::Item *, LogicalResult>(&item)
-        .Case<
-#define AST_ITEM(NAME) ast::NAME##Item,
+#define AST_ITEM(NAME)                                                         \
+  .Case<ast::NAME##Item>([&](auto *item) { return visitItem(*item); })
 #include "tin/AST.def"
-            ast::Item>([&](auto *item) { return visit(*item); })
         .Default([&](auto *) {
           return mlir::emitError(item.loc) << "item codegen not implemented";
         });
   }
 
-  LogicalResult visit(ast::ModItem &item) {
+  LogicalResult visitItem(ast::ModItem &item) {
     auto mod = builder.create<hw::HWModuleOp>(item.loc, item.name,
                                               ArrayRef<hw::PortInfo>{});
     symbolTable.insert(mod);
@@ -71,40 +71,71 @@ struct Codegen {
 
   LogicalResult visit(ast::Stmt &stmt) {
     return TypeSwitch<ast::Stmt *, LogicalResult>(&stmt)
-        .Case<
-#define AST_STMT(NAME) ast::NAME##Stmt,
+#define AST_STMT(NAME)                                                         \
+  .Case<ast::NAME##Stmt>([&](auto *stmt) { return visitStmt(*stmt); })
 #include "tin/AST.def"
-            ast::Stmt>([&](auto *stmt) { return visit(*stmt); })
         .Default([&](auto *) {
           return mlir::emitError(stmt.loc)
                  << "statement codegen not implemented";
         });
   }
 
-  LogicalResult visit(ast::EmptyStmt &stmt) { return success(); }
-  LogicalResult visit(ast::ExprStmt &stmt) { return visit(*stmt.expr); }
+  LogicalResult visitStmt(ast::EmptyStmt &stmt) { return success(); }
 
-  LogicalResult visit(ast::Expr &expr) {
-    return TypeSwitch<ast::Expr *, LogicalResult>(&expr)
-        .Case<
-#define AST_EXPR(NAME) ast::NAME##Expr,
+  LogicalResult visitStmt(ast::ExprStmt &stmt) {
+    auto value = visit(*stmt.expr);
+    if (!value)
+      return failure();
+    return success();
+  }
+
+  Value visit(ast::Expr &expr) {
+    return TypeSwitch<ast::Expr *, Value>(&expr)
+#define AST_EXPR(NAME)                                                         \
+  .Case<ast::NAME##Expr>([&](auto *expr) { return visitExpr(*expr); })
 #include "tin/AST.def"
-            ast::Expr>([&](auto *expr) { return visit(*expr); })
         .Default([&](auto *) {
-          return mlir::emitError(expr.loc)
-                 << "expression codegen not implemented";
+          mlir::emitError(expr.loc) << "expression codegen not implemented";
+          return Value{};
         });
   }
 
-  LogicalResult visit(ast::NumLitExpr &expr) {
-    builder.create<hw::ConstantOp>(expr.loc, expr.value);
-    return success();
+  Value visitExpr(ast::NumLitExpr &expr) {
+    return builder.create<hw::ConstantOp>(expr.loc, expr.value);
+  }
+
+  Value visitExpr(ast::ParenExpr &expr) { return visit(*expr.expr); }
+
+  Value visitExpr(ast::UnaryExpr &expr) {
+    auto arg = visit(*expr.arg);
+    if (!arg)
+      return {};
+
+    using ast::UnaryOp;
+    switch (expr.op) {
+    case UnaryOp::Neg: {
+      auto zero = builder.create<hw::ConstantOp>(expr.loc, arg.getType(), 0);
+      return builder.create<comb::SubOp>(expr.loc, zero, arg);
+    }
+    case UnaryOp::Not: {
+      auto ones = builder.create<hw::ConstantOp>(expr.loc, arg.getType(), -1);
+      return builder.create<comb::XorOp>(expr.loc, ones, arg);
+    }
+    }
+
+    mlir::emitError(expr.loc) << "unary expression codegen not implemented";
+    return {};
+  }
+
+  Value visitExpr(ast::BinaryExpr &expr) {
+    mlir::emitError(expr.loc) << "binary expression codegen not implemented";
+    return {};
   }
 };
 } // namespace
 
 OwningOpRef<ModuleOp> tin::convertToMLIR(MLIRContext *context, AST &ast) {
-  context->loadDialect<hw::HWDialect>();
+  context->loadDialect<hw::HWDialect, comb::CombDialect>();
   auto module = ModuleOp::create(UnknownLoc::get(context));
   Codegen codegen(module);
   if (failed(codegen.visit(ast)))

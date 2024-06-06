@@ -61,6 +61,18 @@ struct ExprStmt : public Stmt {
   Expr *expr;
 };
 
+/// All unary operators.
+enum class UnaryOp {
+#define AST_UNARY(NAME, TOKEN) NAME,
+#include "tin/AST.def"
+};
+
+/// All binary operators.
+enum class BinaryOp {
+#define AST_BINARY(NAME, TOKEN) NAME,
+#include "tin/AST.def"
+};
+
 /// Base class for all expressions.
 struct Expr {
   enum class Kind {
@@ -71,10 +83,31 @@ struct Expr {
   Location loc;
 };
 
-/// An number literal expression.
+/// A number literal expression.
 struct NumLitExpr : public Expr {
   static bool classof(const Expr *expr) { return expr->kind == Kind::NumLit; }
   APInt value;
+};
+
+/// A parenthesized expression.
+struct ParenExpr : public Expr {
+  static bool classof(const Expr *expr) { return expr->kind == Kind::Paren; }
+  Expr *expr;
+};
+
+/// A unary expression.
+struct UnaryExpr : public Expr {
+  static bool classof(const Expr *expr) { return expr->kind == Kind::Unary; }
+  UnaryOp op;
+  Expr *arg;
+};
+
+/// A binary expression.
+struct BinaryExpr : public Expr {
+  static bool classof(const Expr *expr) { return expr->kind == Kind::Binary; }
+  BinaryOp op;
+  Expr *lhs;
+  Expr *rhs;
 };
 
 } // namespace ast

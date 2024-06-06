@@ -22,14 +22,30 @@
 #define AST_EXPR(NAME) AST_ANY(NAME##Expr)
 #endif
 
+#ifndef AST_UNARY
+#define AST_UNARY(NAME, TOKEN)
+#endif
+
+#ifndef AST_BINARY
+#define AST_BINARY(NAME, TOKEN)
+#endif
+
 AST_ITEM(Mod)
 
 AST_STMT(Empty)
 AST_STMT(Expr)
 
 AST_EXPR(NumLit)
+AST_EXPR(Paren)
+AST_EXPR(Unary)
+AST_EXPR(Binary)
+
+AST_UNARY(Neg, sub)
+AST_UNARY(Not, emark)
 
 #undef AST_ANY
 #undef AST_ITEM
 #undef AST_STMT
 #undef AST_EXPR
+#undef AST_UNARY
+#undef AST_BINARY

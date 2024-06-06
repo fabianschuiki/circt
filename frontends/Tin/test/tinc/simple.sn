@@ -5,6 +5,10 @@ mod Foo() {
   // Stray semicolons are ignored.
   ;
 
+  // CHECK: hw.constant 0 : i0
+  0;
+  // CHECK: hw.constant true
+  1;
   // CHECK: hw.constant -22 : i6
   42;
   // CHECK: hw.constant 42 : i16
@@ -17,6 +21,18 @@ mod Foo() {
   0o777;
   // CHECK: hw.constant -14434577 : i25
   0x0123_beef;
+
+  // CHECK: hw.constant -21 : i6
+  (43);
+
+  // CHECK: [[TMP:%.+]] = hw.constant -22 : i6
+  // CHECK: [[ZERO:%.+]] = hw.constant 0 : i6
+  // CHECK: comb.sub [[ZERO]], [[TMP]] : i6
+  -42;
+  // CHECK: [[TMP:%.+]] = hw.constant -22 : i6
+  // CHECK: [[ONES:%.+]] = hw.constant -1 : i6
+  // CHECK: comb.xor [[ONES]], [[TMP]] : i6
+  !42;
 }
 
 // CHECK: hw.module @Bar()

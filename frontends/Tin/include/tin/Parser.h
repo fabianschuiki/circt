@@ -25,6 +25,8 @@ public:
   PointerUnion<ast::Stmt *, ast::Expr *> parseStmtOrExpr();
   ast::Stmt *parseStmt();
   ast::Expr *parseExpr();
+  ast::Expr *parsePrimaryExpr();
+  ast::Expr *parsePrefixExpr();
 
   Lexer &lexer;
   AST &ast;
