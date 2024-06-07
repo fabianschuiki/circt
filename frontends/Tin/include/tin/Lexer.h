@@ -15,8 +15,8 @@ namespace circt {
 namespace tin {
 
 enum class TokenKind {
-  eof,
-  error,
+  Eof,
+  Error,
 #define TOK_ANY(NAME) NAME,
 #include "tin/Tokens.def"
 };
@@ -28,14 +28,14 @@ struct Token {
   TokenKind kind;
 
   /// Check whether the token represents the end of the input file.
-  explicit operator bool() const { return kind != TokenKind::eof; }
+  explicit operator bool() const { return kind != TokenKind::Eof; }
 };
 
 // Allow `Token` to be printed.
 template <typename T>
 static T &operator<<(T &os, const Token &token) {
   os << symbolizeTokenKind(token.kind);
-  if (token.kind == TokenKind::ident || token.kind == TokenKind::num_lit)
+  if (token.kind == TokenKind::Ident || token.kind == TokenKind::NumLit)
     os << " `" << token.spelling << "`";
   return os;
 }

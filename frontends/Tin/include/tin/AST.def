@@ -27,7 +27,7 @@
 #endif
 
 #ifndef AST_BINARY
-#define AST_BINARY(NAME, TOKEN)
+#define AST_BINARY(NAME, TOKEN, PREC)
 #endif
 
 AST_ITEM(Mod)
@@ -40,8 +40,26 @@ AST_EXPR(Paren)
 AST_EXPR(Unary)
 AST_EXPR(Binary)
 
-AST_UNARY(Neg, sub)
-AST_UNARY(Not, emark)
+AST_UNARY(Neg, Sub)
+AST_UNARY(Not, Emark)
+
+AST_BINARY(And, And, And)
+AST_BINARY(Or, Or, Or)
+AST_BINARY(Xor, Xor, Xor)
+AST_BINARY(Add, Add, Add)
+AST_BINARY(Sub, Sub, Add)
+AST_BINARY(Mul, Mul, Mul)
+AST_BINARY(Div, Div, Mul)
+AST_BINARY(Mod, Mod, Mul)
+AST_BINARY(Shl, Shl, Shift)
+AST_BINARY(Shr, Shr, Shift)
+
+AST_BINARY(Eq, Eq, Eq)
+AST_BINARY(Neq, Neq, Eq)
+AST_BINARY(Lt, Lt, Rel)
+AST_BINARY(Gt, Gt, Rel)
+AST_BINARY(Geq, Geq, Rel)
+AST_BINARY(Leq, Leq, Rel)
 
 #undef AST_ANY
 #undef AST_ITEM

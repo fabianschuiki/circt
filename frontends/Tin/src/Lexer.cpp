@@ -20,17 +20,17 @@ using namespace tin;
 
 StringRef tin::symbolizeTokenKind(TokenKind kind) {
   switch (kind) {
-  case TokenKind::eof:
+  case TokenKind::Eof:
     return "end of file";
-  case TokenKind::error:
+  case TokenKind::Error:
     return "<error>";
-  case TokenKind::ident:
+  case TokenKind::Ident:
     return "identifier";
-  case TokenKind::num_lit:
+  case TokenKind::NumLit:
     return "number literal";
 
 #define TOK_KEYWORD(IDENT)                                                     \
-  case TokenKind::kw_##IDENT:                                                  \
+  case TokenKind::Kw_##IDENT:                                                  \
     return "keyword `" #IDENT "`";
 
 #define TOK_SYMBOL(NAME, SPELLING)                                             \
@@ -52,7 +52,7 @@ namespace {
 struct KeywordTableCreator {
   static void *call() {
     auto table = std::make_unique<llvm::StringMap<TokenKind>>();
-#define TOK_KEYWORD(IDENT) table->insert({#IDENT, TokenKind::kw_##IDENT});
+#define TOK_KEYWORD(IDENT) table->insert({#IDENT, TokenKind::Kw_##IDENT});
 #include "tin/Tokens.def"
     return table.release();
   }
@@ -66,46 +66,46 @@ Lexer::Lexer(MLIRContext *context, StringRef text, StringAttr filename)
       keywordTable(*staticKeywordTable) {}
 
 /// Check whether a character is considered whitespace.
-static bool is_space(char c) {
+static bool isSpace(char c) {
   return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
 /// Check whether a character is a valid digit.
-static bool is_digit(char c) { return c >= '0' && c <= '9'; }
+static bool isDigit(char c) { return c >= '0' && c <= '9'; }
 
 /// Check whether a character is a valid start of an identifier.
-static bool is_ident_start(char c) {
+static bool isIdentStart(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
 /// Check whether a character is valid in an identifier.
-static bool is_ident(char c) { return is_ident_start(c) || is_digit(c); }
+static bool isIdent(char c) { return isIdentStart(c) || isDigit(c); }
 
 /// Check whether `text` starts with a valid 1-character symbol token.
 static TokenKind match_symbol1(StringRef text) {
   if (text.size() < 1)
-    return TokenKind::eof;
+    return TokenKind::Eof;
   switch (text[0]) {
 #define TOK_SYMBOL1(NAME, SPELLING)                                            \
   case SPELLING[0]:                                                            \
     return TokenKind::NAME;
 #include "tin/Tokens.def"
   default:
-    return TokenKind::eof;
+    return TokenKind::Eof;
   }
 }
 
 /// Check whether `text` starts with a valid 2-character symbol token.
 static TokenKind match_symbol2(StringRef text) {
   if (text.size() < 2)
-    return TokenKind::eof;
+    return TokenKind::Eof;
   switch (text[0] | text[1] << 8) {
 #define TOK_SYMBOL2(NAME, SPELLING)                                            \
   case SPELLING[0] | SPELLING[1] << 8:                                         \
     return TokenKind::NAME;
 #include "tin/Tokens.def"
   default:
-    return TokenKind::eof;
+    return TokenKind::Eof;
   }
 }
 
@@ -113,7 +113,7 @@ Token Lexer::next() {
   // Ignore things in front of the next token.
   while (!text.empty()) {
     // Skip whitespace.
-    while (!text.empty() && is_space(text[0]))
+    while (!text.empty() && isSpace(text[0]))
       text = text.drop_front();
 
     // Skip single-line comments.
@@ -131,7 +131,7 @@ Token Lexer::next() {
       if (!text.consume_front("*/")) {
         mlir::emitError(locationOfSubstring(commentStart),
                         "unclosed comment; missing `*/`");
-        return {"", TokenKind::error};
+        return {"", TokenKind::Error};
       }
       continue;
     }
@@ -140,43 +140,43 @@ Token Lexer::next() {
     break;
   }
   if (text.empty())
-    return {text, TokenKind::eof};
+    return {text, TokenKind::Eof};
 
   // Snapshot the input before we do any lexing for the next token.
   auto initialText = text;
 
   // Parse symbols.
-  if (auto kind = match_symbol2(text.data()); kind != TokenKind::eof) {
+  if (auto kind = match_symbol2(text.data()); kind != TokenKind::Eof) {
     text = text.drop_front(2);
     return {initialText.take_front(2), kind};
   }
-  if (auto kind = match_symbol1(text.data()); kind != TokenKind::eof) {
+  if (auto kind = match_symbol1(text.data()); kind != TokenKind::Eof) {
     text = text.drop_front(1);
     return {initialText.take_front(1), kind};
   }
 
   // Parse identifiers.
-  if (is_ident_start(text[0])) {
-    auto ident = text.take_while(is_ident);
+  if (isIdentStart(text[0])) {
+    auto ident = text.take_while(isIdent);
     text = text.drop_front(ident.size());
-    auto kind = TokenKind::ident;
+    auto kind = TokenKind::Ident;
     if (auto it = keywordTable.find(ident); it != keywordTable.end())
       kind = it->second;
     return {ident, kind};
   }
 
   // Parse number literals.
-  if (is_digit(text[0])) {
-    auto num = text.take_while(is_ident);
+  if (isDigit(text[0])) {
+    auto num = text.take_while(isIdent);
     text = text.drop_front(num.size());
-    return {num, TokenKind::num_lit};
+    return {num, TokenKind::NumLit};
   }
 
   // If we get here we didn't recognize what's in the input text.
   mlir::emitError(locationOfSubstring(initialText.substr(0, 1)),
                   "unknown character `")
       << initialText[0] << "`";
-  return {initialText.substr(0, 0), TokenKind::error};
+  return {initialText.substr(0, 0), TokenKind::Error};
 }
 
 Location Lexer::locationOfSubstring(StringRef substring) {

@@ -23,6 +23,28 @@ static bool isValidDigitForBase(char c, int base) {
   return false;
 }
 
+static std::optional<ast::UnaryOp> isUnaryOp(TokenKind kind) {
+  switch (kind) {
+#define AST_UNARY(NAME, TOKEN)                                                 \
+  case TokenKind::TOKEN:                                                       \
+    return ast::UnaryOp::NAME;
+#include "tin/AST.def"
+  default:
+    return {};
+  }
+}
+
+static std::optional<ast::BinaryOp> isBinaryOp(TokenKind kind) {
+  switch (kind) {
+#define AST_BINARY(NAME, TOKEN, PREC)                                          \
+  case TokenKind::TOKEN:                                                       \
+    return ast::BinaryOp::NAME;
+#include "tin/AST.def"
+  default:
+    return {};
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // Parser
 //===----------------------------------------------------------------------===//
@@ -46,7 +68,7 @@ Token Parser::consume() {
 Token Parser::consumeIf(TokenKind kind) {
   if (isa(kind))
     return consume();
-  return {token.spelling.substr(0, 0), TokenKind::eof};
+  return {token.spelling.substr(0, 0), TokenKind::Eof};
 }
 
 Token Parser::require(TokenKind kind, const Twine &msg) {
@@ -58,7 +80,7 @@ Token Parser::require(TokenKind kind, const Twine &msg) {
   else
     d << msg;
   d << ", found " << token;
-  return {token.spelling.substr(0, 0), TokenKind::eof};
+  return {token.spelling.substr(0, 0), TokenKind::Eof};
 }
 
 //===----------------------------------------------------------------------===//
@@ -79,26 +101,26 @@ ast::Root *Parser::parseRoot() {
 
 ast::Item *Parser::parseItem() {
   // Parse module definitions.
-  if (auto kw = consumeIf(TokenKind::kw_mod)) {
-    auto name = require(TokenKind::ident, "module name");
+  if (auto kw = consumeIf(TokenKind::Kw_mod)) {
+    auto name = require(TokenKind::Ident, "module name");
 
     // Parse the ports.
-    if (!require(TokenKind::lparen))
+    if (!require(TokenKind::LParen))
       return {};
-    if (!require(TokenKind::rparen))
+    if (!require(TokenKind::RParen))
       return {};
 
     // Parse the body.
-    if (!require(TokenKind::lcurly))
+    if (!require(TokenKind::LCurly))
       return {};
     SmallVector<ast::Stmt *> stmts;
-    while (notAtDelimiter(TokenKind::rcurly)) {
+    while (notAtDelimiter(TokenKind::RCurly)) {
       auto *stmt = parseStmt();
       if (!stmt)
         return {};
       stmts.push_back(stmt);
     }
-    if (!require(TokenKind::rcurly))
+    if (!require(TokenKind::RCurly))
       return {};
 
     return &ast.create<ast::ModItem>(
@@ -113,7 +135,7 @@ ast::Item *Parser::parseItem() {
 
 PointerUnion<ast::Stmt *, ast::Expr *> Parser::parseStmtOrExpr() {
   // Ignore stray semicolons.
-  if (auto token = consumeIf(TokenKind::semicolon))
+  if (auto token = consumeIf(TokenKind::Semicolon))
     return &ast.create<ast::EmptyStmt>({{ast::Stmt::Kind::Empty, loc(token)}});
 
   // Otherwise this is a statement that starts with an expression.
@@ -133,7 +155,7 @@ ast::Stmt *Parser::parseStmt() {
   // Otherwise we've parsed an expression, also parse the subsequent semicolon
   // if the expression requires one. Some expressions, like `{...}` don't need a
   // semicolon.
-  if (!require(TokenKind::semicolon))
+  if (!require(TokenKind::Semicolon))
     return {};
 
   return &ast.create<ast::ExprStmt>({{ast::Stmt::Kind::Expr, expr->loc}, expr});
@@ -159,11 +181,16 @@ static std::optional<unsigned> consumeWidthSuffix(StringRef &spelling) {
   return {};
 }
 
-ast::Expr *Parser::parseExpr() { return parsePrefixExpr(); }
+ast::Expr *Parser::parseExpr(ast::Precedence minPrec) {
+  auto *expr = parsePrimaryExpr();
+  if (!expr)
+    return {};
+  return parseInfixExpr(expr, minPrec);
+}
 
 ast::Expr *Parser::parsePrimaryExpr() {
   // Parse number literals.
-  if (auto lit = consumeIf(TokenKind::num_lit)) {
+  if (auto lit = consumeIf(TokenKind::NumLit)) {
     auto spelling = lit.spelling;
 
     // Handle the optional `i[0-9]+` type suffix.
@@ -220,39 +247,48 @@ ast::Expr *Parser::parsePrimaryExpr() {
   }
 
   // Parse parenthesized expressions.
-  if (auto lparen = consumeIf(TokenKind::lparen)) {
+  if (auto lparen = consumeIf(TokenKind::LParen)) {
     auto *expr = parseExpr();
     if (!expr)
       return {};
-    require(TokenKind::rparen);
+    require(TokenKind::RParen);
     return &ast.create<ast::ParenExpr>(
         {{ast::Expr::Kind::Paren, loc(lparen)}, expr});
+  }
+
+  // Parse unary operators.
+  if (auto op = isUnaryOp(token.kind)) {
+    auto opToken = consume();
+    auto *arg = parsePrimaryExpr();
+    if (!arg)
+      return {};
+    return &ast.create<ast::UnaryExpr>(
+        {{ast::Expr::Kind::Unary, loc(opToken)}, *op, arg});
   }
 
   mlir::emitError(loc(), "expected expression, found ") << token;
   return {};
 }
 
-ast::Expr *Parser::parsePrefixExpr() {
-  // Parse unary operators.
-  auto parseUnary = [&](ast::UnaryOp op) -> ast::Expr * {
+ast::Expr *Parser::parseInfixExpr(ast::Expr *expr, ast::Precedence minPrec) {
+  while (true) {
+    // Handle binary operators.
+    auto op = isBinaryOp(token.kind);
+    if (!op)
+      return expr;
+
+    // If this operator's precedence is below the minimum precedence, return.
+    // This ensures that a `*` does not gobble up a `+`.
+    auto opPrec = getPrecedence(*op);
+    if (opPrec < minPrec)
+      return expr;
+
+    // Consume the operator and parse the right-hand side expression.
     auto opToken = consume();
-    auto *arg = parsePrefixExpr();
-    if (!arg)
-      return {};
-    return &ast.create<ast::UnaryExpr>(
-        {{ast::Expr::Kind::Unary, loc(opToken)}, op, arg});
-  };
+    auto *rhs = parseExpr(opPrec);
 
-  switch (token.kind) {
-#define AST_UNARY(NAME, TOKEN)                                                 \
-  case TokenKind::TOKEN:                                                       \
-    return parseUnary(ast::UnaryOp::NAME);
-#include "tin/AST.def"
-  default:
-    break;
+    // Form the new left-hand side.
+    expr = &ast.create<ast::BinaryExpr>(
+        {{ast::Expr::Kind::Binary, loc(opToken)}, *op, expr, rhs});
   }
-
-  // Otherwise parse a primary expression.
-  return parsePrimaryExpr();
 }

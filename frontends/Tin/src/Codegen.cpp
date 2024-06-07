@@ -44,6 +44,10 @@ struct Codegen {
     return success();
   }
 
+  //===--------------------------------------------------------------------===//
+  // Items
+  //===--------------------------------------------------------------------===//
+
   LogicalResult visit(ast::Item &item) {
     return TypeSwitch<ast::Item *, LogicalResult>(&item)
 #define AST_ITEM(NAME)                                                         \
@@ -69,6 +73,10 @@ struct Codegen {
     return success();
   }
 
+  //===--------------------------------------------------------------------===//
+  // Statements
+  //===--------------------------------------------------------------------===//
+
   LogicalResult visit(ast::Stmt &stmt) {
     return TypeSwitch<ast::Stmt *, LogicalResult>(&stmt)
 #define AST_STMT(NAME)                                                         \
@@ -88,6 +96,10 @@ struct Codegen {
       return failure();
     return success();
   }
+
+  //===--------------------------------------------------------------------===//
+  // Expressions
+  //===--------------------------------------------------------------------===//
 
   Value visit(ast::Expr &expr) {
     return TypeSwitch<ast::Expr *, Value>(&expr)
@@ -111,13 +123,12 @@ struct Codegen {
     if (!arg)
       return {};
 
-    using ast::UnaryOp;
     switch (expr.op) {
-    case UnaryOp::Neg: {
+    case ast::UnaryOp::Neg: {
       auto zero = builder.create<hw::ConstantOp>(expr.loc, arg.getType(), 0);
       return builder.create<comb::SubOp>(expr.loc, zero, arg);
     }
-    case UnaryOp::Not: {
+    case ast::UnaryOp::Not: {
       auto ones = builder.create<hw::ConstantOp>(expr.loc, arg.getType(), -1);
       return builder.create<comb::XorOp>(expr.loc, ones, arg);
     }
@@ -128,6 +139,54 @@ struct Codegen {
   }
 
   Value visitExpr(ast::BinaryExpr &expr) {
+    auto lhs = visit(*expr.lhs);
+    if (!lhs)
+      return {};
+    auto rhs = visit(*expr.rhs);
+    if (!rhs)
+      return {};
+
+    switch (expr.op) {
+    case ast::BinaryOp::And:
+      return builder.create<comb::AndOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Or:
+      return builder.create<comb::OrOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Xor:
+      return builder.create<comb::XorOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Add:
+      return builder.create<comb::AddOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Sub:
+      return builder.create<comb::SubOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Mul:
+      return builder.create<comb::MulOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Div:
+      return builder.create<comb::DivUOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Mod:
+      return builder.create<comb::ModUOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Shl:
+      return builder.create<comb::ShlOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Shr:
+      return builder.create<comb::ShrUOp>(expr.loc, lhs, rhs);
+    case ast::BinaryOp::Eq:
+      return builder.create<comb::ICmpOp>(expr.loc, comb::ICmpPredicate::eq,
+                                          lhs, rhs);
+    case ast::BinaryOp::Neq:
+      return builder.create<comb::ICmpOp>(expr.loc, comb::ICmpPredicate::ne,
+                                          lhs, rhs);
+    case ast::BinaryOp::Lt:
+      return builder.create<comb::ICmpOp>(expr.loc, comb::ICmpPredicate::ult,
+                                          lhs, rhs);
+    case ast::BinaryOp::Gt:
+      return builder.create<comb::ICmpOp>(expr.loc, comb::ICmpPredicate::ugt,
+                                          lhs, rhs);
+    case ast::BinaryOp::Leq:
+      return builder.create<comb::ICmpOp>(expr.loc, comb::ICmpPredicate::ule,
+                                          lhs, rhs);
+    case ast::BinaryOp::Geq:
+      return builder.create<comb::ICmpOp>(expr.loc, comb::ICmpPredicate::uge,
+                                          lhs, rhs);
+    }
+
     mlir::emitError(expr.loc) << "binary expression codegen not implemented";
     return {};
   }

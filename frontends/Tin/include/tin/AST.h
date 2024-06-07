@@ -18,6 +18,22 @@ struct Item;
 struct Stmt;
 struct Expr;
 
+/// Operator precedences.
+///
+/// See https://en.cppreference.com/w/c/language/operator_precedence.
+enum class Precedence {
+  Min,
+  Or,    // |
+  Xor,   // ^
+  And,   // &
+  Eq,    // == !=
+  Rel,   // < > <= >=
+  Shift, // << >>
+  Add,   // + -
+  Mul,   // * / %
+  Max
+};
+
 /// A root node in the AST, corresponding to a parsed file.
 struct Root {
   ArrayRef<Item *> items;
@@ -69,9 +85,12 @@ enum class UnaryOp {
 
 /// All binary operators.
 enum class BinaryOp {
-#define AST_BINARY(NAME, TOKEN) NAME,
+#define AST_BINARY(NAME, TOKEN, PREC) NAME,
 #include "tin/AST.def"
 };
+
+/// Return the precedence of the given binary operator.
+Precedence getPrecedence(BinaryOp op);
 
 /// Base class for all expressions.
 struct Expr {

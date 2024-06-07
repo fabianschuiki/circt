@@ -24,9 +24,9 @@ public:
   ast::Item *parseItem();
   PointerUnion<ast::Stmt *, ast::Expr *> parseStmtOrExpr();
   ast::Stmt *parseStmt();
-  ast::Expr *parseExpr();
+  ast::Expr *parseExpr(ast::Precedence minPrec = ast::Precedence::Min);
   ast::Expr *parsePrimaryExpr();
-  ast::Expr *parsePrefixExpr();
+  ast::Expr *parseInfixExpr(ast::Expr *expr, ast::Precedence minPrec);
 
   Lexer &lexer;
   AST &ast;
