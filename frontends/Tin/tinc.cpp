@@ -40,6 +40,13 @@ struct Opt {
   cl::opt<std::string> outputFilename{
       "o", cl::desc("Output filename (`-` for stdout)"),
       cl::value_desc("filename"), cl::init("-")};
+
+  cl::opt<bool> verifyDiagnostics{
+      "verify-diagnostics",
+      cl::desc("Check that emitted diagnostics match expected-* lines on the "
+               "corresponding line"),
+
+      cl::init(false), cl::Hidden};
 };
 Opt opt;
 
@@ -47,21 +54,12 @@ Opt opt;
 // Driver
 //===----------------------------------------------------------------------===//
 
-LogicalResult executeCompiler(MLIRContext *context) {
-  llvm::SourceMgr sourceMgr;
-  mlir::SourceMgrDiagnosticHandler sourceMgrHandler(sourceMgr, context);
-
-  // Open the source file.
-  auto fileOrError = llvm::MemoryBuffer::getFileOrSTDIN(opt.inputFilename);
-  if (auto error = fileOrError.getError()) {
-    llvm::errs() << "error: unable to open input file: " << error.message()
-                 << "\n";
-    return failure();
-  }
-
+LogicalResult process(MLIRContext *context, llvm::SourceMgr &sourceMgr,
+                      std::unique_ptr<llvm::ToolOutputFile> outputFile) {
   // Create a lexer.
-  Lexer lexer(context, fileOrError.get()->getBuffer(),
-              StringAttr::get(context, opt.inputFilename));
+  auto buffer = sourceMgr.getMemoryBuffer(sourceMgr.getMainFileID());
+  Lexer lexer(context, buffer->getBuffer(),
+              StringAttr::get(context, buffer->getBufferIdentifier()));
 
   // Create a parser and parse the input into an AST.
   AST ast;
@@ -76,18 +74,41 @@ LogicalResult executeCompiler(MLIRContext *context) {
   if (!module)
     return failure();
 
-  // Open the output file.
-  std::string errorMessage;
-  auto outputFile = mlir::openOutputFile(opt.outputFilename, &errorMessage);
-  if (!outputFile) {
-    mlir::emitError(UnknownLoc::get(context)) << errorMessage << "\n";
-    return failure();
-  }
-
   // Print the final MLIR.
   module->print(outputFile->os());
   outputFile->keep();
   return success();
+}
+
+LogicalResult executeCompiler(MLIRContext *context) {
+  // Open the source file.
+  auto fileOrError = llvm::MemoryBuffer::getFileOrSTDIN(opt.inputFilename);
+  if (auto error = fileOrError.getError()) {
+    llvm::errs() << "error: unable to open input file: " << error.message()
+                 << "\n";
+    return failure();
+  }
+
+  // Open the output file.
+  std::string errorMessage;
+  auto outputFile = mlir::openOutputFile(opt.outputFilename, &errorMessage);
+  if (!outputFile) {
+    llvm::errs() << errorMessage << "\n";
+    return failure();
+  }
+
+  llvm::SourceMgr sourceMgr;
+  sourceMgr.AddNewSourceBuffer(std::move(fileOrError.get()), llvm::SMLoc());
+
+  if (!opt.verifyDiagnostics) {
+    mlir::SourceMgrDiagnosticHandler sourceMgrHandler(sourceMgr, context);
+    return process(context, sourceMgr, std::move(outputFile));
+  }
+
+  mlir::SourceMgrDiagnosticVerifierHandler sourceMgrHandler(sourceMgr, context);
+  context->printOpOnDiagnostic(false);
+  (void)process(context, sourceMgr, std::move(outputFile));
+  return sourceMgrHandler.verify();
 }
 
 int main(int argc, char **argv) {
