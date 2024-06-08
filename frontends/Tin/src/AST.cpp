@@ -17,7 +17,7 @@ Precedence ast::getPrecedence(BinaryOp op) {
   switch (op) {
 #define AST_BINARY(NAME, TOKEN, PREC)                                          \
   case BinaryOp::NAME:                                                         \
-    return Precedence::PREC;
+    return Precedence::P_##PREC;
 #include "tin/AST.def"
   };
 }

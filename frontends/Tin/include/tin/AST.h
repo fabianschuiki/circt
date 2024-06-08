@@ -21,17 +21,17 @@ struct Expr;
 /// Operator precedences.
 ///
 /// See https://en.cppreference.com/w/c/language/operator_precedence.
-enum class Precedence {
-  Min,
-  Or,    // |
-  Xor,   // ^
-  And,   // &
-  Eq,    // == !=
-  Rel,   // < > <= >=
-  Shift, // << >>
-  Add,   // + -
-  Mul,   // * / %
-  Max
+enum Precedence {
+  P_Min,
+  P_Or,    // |
+  P_Xor,   // ^
+  P_And,   // &
+  P_Eq,    // == !=
+  P_Rel,   // < > <= >=
+  P_Shift, // << >>
+  P_Add,   // + -
+  P_Mul,   // * / %
+  P_Max
 };
 
 /// A root node in the AST, corresponding to a parsed file.

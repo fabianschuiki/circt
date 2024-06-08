@@ -119,6 +119,14 @@ mod Foo() {
   // CHECK: [[TMP2:%.+]] = comb.mul [[C]], [[D]]
   // CHECK: comb.add [[TMP1]], [[TMP2]]
   42 * 43 + 44 * 45;
+
+  // Left-associativity.
+  // CHECK: %[[A:.+]] = hw.constant -22
+  // CHECK: %[[B:.+]] = hw.constant -22
+  // CHECK: %[[SUB:.+]] = comb.sub %[[A]], %[[B]]
+  // CHECK: %[[C:.+]] = hw.constant -22
+  // CHECK: comb.add %[[SUB]], %[[C]]
+  42 - 42 + 42;
 }
 
 // CHECK: hw.module @Bar()
