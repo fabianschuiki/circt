@@ -1,0 +1,6 @@
+// RUN: tinc %s --verify-diagnostics
+
+mod Foo() {
+  // expected-error @below {{expected `)`, found `;`}}
+  (5;
+}
