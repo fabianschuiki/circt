@@ -140,7 +140,7 @@ struct AST {
   /// to it. The reference remains valid for as long as the AST is alive.
   template <class C>
   C &create(C &&node) {
-    return *new (allocator) C(std::move(node));
+    return *new (allocator) C(std::forward<C>(node));
   }
 
   /// Move an array of nodes into the memory owned by the AST and return an

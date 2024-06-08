@@ -91,7 +91,7 @@ Token Parser::require(TokenKind kind, const Twine &msg) {
 ast::Root *Parser::parseRoot() {
   SmallVector<ast::Item *> items;
   while (token) {
-    auto item = parseItem();
+    auto *item = parseItem();
     if (!item)
       return {};
     items.push_back(item);
