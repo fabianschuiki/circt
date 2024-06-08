@@ -1,0 +1,10 @@
+// RUN: tinc %s | circt-opt | FileCheck %s
+
+// Width error.
+// XFAIL: *
+
+// CHECK: hw.module @Foo()
+mod Foo() {
+  8 / 2 / 2;
+}
+
