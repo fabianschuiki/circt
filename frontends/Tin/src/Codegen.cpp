@@ -12,6 +12,7 @@
 #include "circt/Dialect/HW/HWOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Verifier.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace circt;
@@ -199,7 +200,7 @@ OwningOpRef<ModuleOp> tin::convertToMLIR(MLIRContext *context, AST &ast) {
   Codegen codegen(module);
   if (failed(codegen.visit(ast)))
     return {};
-  if (failed(module.verify())) {
+  if (failed(verify(module))) {
     module.emitError("module verification error");
     return {};
   }
