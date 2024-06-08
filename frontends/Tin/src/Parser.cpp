@@ -71,6 +71,7 @@ Token Parser::consumeIf(TokenKind kind) {
   return {token.spelling.substr(0, 0), TokenKind::Eof};
 }
 
+[[nodiscard]]
 Token Parser::require(TokenKind kind, const Twine &msg) {
   if (isa(kind))
     return consume();
@@ -103,6 +104,8 @@ ast::Item *Parser::parseItem() {
   // Parse module definitions.
   if (auto kw = consumeIf(TokenKind::Kw_mod)) {
     auto name = require(TokenKind::Ident, "module name");
+    if (!name)
+      return {};
 
     // Parse the ports.
     if (!require(TokenKind::LParen))
@@ -251,7 +254,8 @@ ast::Expr *Parser::parsePrimaryExpr() {
     auto *expr = parseExpr();
     if (!expr)
       return {};
-    require(TokenKind::RParen);
+    if (!require(TokenKind::RParen))
+      return {};
     return &ast.create<ast::ParenExpr>(
         {{ast::Expr::Kind::Paren, loc(lparen)}, expr});
   }
