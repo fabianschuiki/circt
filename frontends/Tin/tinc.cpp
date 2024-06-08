@@ -57,9 +57,7 @@ Opt opt;
 LogicalResult process(MLIRContext *context, llvm::SourceMgr &sourceMgr,
                       std::unique_ptr<llvm::ToolOutputFile> outputFile) {
   // Create a lexer.
-  auto buffer = sourceMgr.getMemoryBuffer(sourceMgr.getMainFileID());
-  Lexer lexer(context, buffer->getBuffer(),
-              StringAttr::get(context, buffer->getBufferIdentifier()));
+  Lexer lexer(context, sourceMgr);
 
   // Create a parser and parse the input into an AST.
   AST ast;

@@ -10,6 +10,7 @@
 #include "circt/Support/LLVM.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/SourceMgr.h"
 
 namespace circt {
 namespace tin {
@@ -42,12 +43,12 @@ static T &operator<<(T &os, const Token &token) {
 
 class Lexer {
 public:
-  Lexer(MLIRContext *context, StringRef text, StringAttr filename);
+  Lexer(MLIRContext *context, llvm::SourceMgr &sourceMgr);
   Token next();
   Location locationOfSubstring(StringRef substring);
 
   MLIRContext *context;
-  StringRef fullText;
+  llvm::SourceMgr &sourceMgr;
   StringAttr filename;
 
 private:

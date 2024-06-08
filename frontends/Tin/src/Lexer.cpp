@@ -61,8 +61,12 @@ llvm::ManagedStatic<llvm::StringMap<TokenKind>, KeywordTableCreator>
     staticKeywordTable;
 } // namespace
 
-Lexer::Lexer(MLIRContext *context, StringRef text, StringAttr filename)
-    : context(context), fullText(text), filename(filename), text(text),
+Lexer::Lexer(MLIRContext *context, llvm::SourceMgr &sourceMgr)
+    : context(context), sourceMgr(sourceMgr),
+      filename(StringAttr::get(
+          context, sourceMgr.getMemoryBuffer(sourceMgr.getMainFileID())
+                       ->getBufferIdentifier())),
+      text(sourceMgr.getMemoryBuffer(sourceMgr.getMainFileID())->getBuffer()),
       keywordTable(*staticKeywordTable) {}
 
 /// Check whether a character is considered whitespace.
@@ -180,27 +184,8 @@ Token Lexer::next() {
 }
 
 Location Lexer::locationOfSubstring(StringRef substring) {
-  assert(fullText.begin() <= substring.begin() &&
-         fullText.end() >= substring.end() &&
-         "substring is not part of the full text");
+  auto loc = llvm::SMLoc::getFromPointer(substring.data());
+  auto lineCol = sourceMgr.getLineAndColumn(loc, sourceMgr.getMainFileID());
 
-  // Compute the byte offset of `substring` into the full text being lexed and
-  // get a string ref to the full text up to the beginning of `substring`,
-  // basically everything we've lexed so far.
-  auto offset = substring.begin() - fullText.begin();
-  auto line = fullText.substr(0, offset);
-
-  // Count the number of lines we've lexed and leave only the current line in
-  // the string ref. Its length indicates the column at which we currently are.
-  unsigned lineNum = 1;
-  size_t pos = 0;
-  while ((pos = line.find('\n')) != StringRef::npos) {
-    ++lineNum;
-    ++pos;
-    if (pos < line.size() && line[pos] == '\r')
-      ++pos;
-    line = line.substr(pos);
-  }
-
-  return FileLineColLoc::get(context, filename, lineNum, line.size() + 1);
+  return FileLineColLoc::get(context, filename, lineCol.first, lineCol.second);
 }
