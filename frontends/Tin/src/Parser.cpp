@@ -290,7 +290,8 @@ ast::Expr *Parser::parseInfixExpr(ast::Expr *expr, ast::Precedence minPrec) {
     // Consume the operator and parse the right-hand side expression.
     auto opToken = consume();
     // Parse RHS with precedence + 1 for left-associative.
-    auto rhsMinPrec = ast::Precedence(opPrec + 1);
+    auto rhsMinPrec = static_cast<ast::Precedence>(
+        static_cast<std::underlying_type_t<ast::Precedence>>(opPrec) + 1);
     auto *rhs = parseExpr(rhsMinPrec);
 
     // Form the new left-hand side.

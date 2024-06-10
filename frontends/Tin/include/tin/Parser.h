@@ -24,7 +24,7 @@ public:
   ast::Item *parseItem();
   PointerUnion<ast::Stmt *, ast::Expr *> parseStmtOrExpr();
   ast::Stmt *parseStmt();
-  ast::Expr *parseExpr(ast::Precedence minPrec = ast::Precedence::P_Min);
+  ast::Expr *parseExpr(ast::Precedence minPrec = ast::Precedence::Min);
   ast::Expr *parsePrimaryExpr();
   ast::Expr *parseInfixExpr(ast::Expr *expr, ast::Precedence minPrec);
 
