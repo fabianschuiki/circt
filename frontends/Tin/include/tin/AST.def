@@ -22,6 +22,10 @@
 #define AST_EXPR(NAME) AST_ANY(NAME##Expr)
 #endif
 
+#ifndef AST_TYPE
+#define AST_TYPE(NAME) AST_ANY(NAME##Type)
+#endif
+
 #ifndef AST_UNARY
 #define AST_UNARY(NAME, TOKEN)
 #endif
@@ -61,9 +65,12 @@ AST_BINARY(Gt, Gt, Rel)
 AST_BINARY(Geq, Geq, Rel)
 AST_BINARY(Leq, Leq, Rel)
 
+AST_TYPE(Int)
+
 #undef AST_ANY
 #undef AST_ITEM
 #undef AST_STMT
 #undef AST_EXPR
+#undef AST_TYPE
 #undef AST_UNARY
 #undef AST_BINARY

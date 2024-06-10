@@ -108,8 +108,40 @@ ast::Item *Parser::parseItem() {
       return {};
 
     // Parse the ports.
+    SmallVector<ast::ModPort> ports;
     if (!require(TokenKind::LParen))
       return {};
+    while (notAtDelimiter(TokenKind::RParen)) {
+      // Parse the port direction.
+      bool isOutput;
+      if (consumeIf(TokenKind::Kw_in)) {
+        isOutput = false;
+      } else if (consumeIf(TokenKind::Kw_out)) {
+        isOutput = true;
+      } else {
+        mlir::emitError(loc()) << "expected `in` or `out`, found " << token;
+        return {};
+      }
+
+      // Parse the port name.
+      auto name = require(TokenKind::Ident, "port name");
+      if (!name)
+        return {};
+
+      // Parse the type.
+      if (!require(TokenKind::Colon))
+        return {};
+      auto type = parseType();
+      if (!type)
+        return {};
+
+      // Add the port.
+      ports.push_back(
+          ast::ModPort{loc(name), isOutput,
+                       StringAttr::get(lexer.context, name.spelling), type});
+      if (!consumeIf(TokenKind::Comma))
+        break;
+    }
     if (!require(TokenKind::RParen))
       return {};
 
@@ -129,6 +161,7 @@ ast::Item *Parser::parseItem() {
     return &ast.create<ast::ModItem>(
         {{ast::Item::Kind::Mod, loc(name)},
          StringAttr::get(lexer.context, name.spelling),
+         ast.array(ports),
          ast.array(stmts)});
   }
 
@@ -298,4 +331,27 @@ ast::Expr *Parser::parseInfixExpr(ast::Expr *expr, ast::Precedence minPrec) {
     expr = &ast.create<ast::BinaryExpr>(
         {{ast::Expr::Kind::Binary, loc(opToken)}, *op, expr, rhs});
   }
+}
+
+ast::Type *Parser::parseType() {
+  // Handle integer types, e.g. `int<42>`.
+  if (auto kw = consumeIf(TokenKind::Kw_int)) {
+    if (!require(TokenKind::Lt))
+      return {};
+    auto widthToken = require(TokenKind::NumLit);
+    if (!widthToken)
+      return {};
+    unsigned width;
+    if (widthToken.spelling.getAsInteger(10, width)) {
+      mlir::emitError(loc())
+          << "`" << widthToken.spelling << "` is not a valid `int` width";
+      return {};
+    }
+    if (!require(TokenKind::Gt))
+      return {};
+    return &ast.create<ast::IntType>({{ast::Type::Kind::Int, loc(kw)}, width});
+  }
+
+  mlir::emitError(loc(), "expected type, found ") << token;
+  return {};
 }

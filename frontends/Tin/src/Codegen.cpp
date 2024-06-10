@@ -60,8 +60,20 @@ struct Codegen {
   }
 
   LogicalResult visitItem(ast::ModItem &item) {
-    auto mod = builder.create<hw::HWModuleOp>(item.loc, item.name,
-                                              ArrayRef<hw::PortInfo>{});
+    SmallVector<hw::PortInfo> ports;
+    for (auto &astPort : item.ports) {
+      hw::PortInfo irPort;
+      irPort.loc = astPort.loc;
+      irPort.dir =
+          astPort.isOutput ? hw::PortInfo::Output : hw::PortInfo::Input;
+      irPort.name = astPort.name;
+      irPort.type = visit(*astPort.type);
+      if (!irPort.type)
+        return failure();
+      ports.push_back(irPort);
+    }
+
+    auto mod = builder.create<hw::HWModuleOp>(item.loc, item.name, ports);
     symbolTable.insert(mod);
 
     OpBuilder::InsertionGuard g(builder);
@@ -189,6 +201,18 @@ struct Codegen {
     }
 
     mlir::emitError(expr.loc) << "binary expression codegen not implemented";
+    return {};
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Types
+  //===--------------------------------------------------------------------===//
+
+  Type visit(ast::Type &type) {
+    if (auto *intType = dyn_cast<ast::IntType>(&type))
+      return builder.getIntegerType(intType->width);
+
+    mlir::emitError(type.loc) << "type codegen not implemented";
     return {};
   }
 };

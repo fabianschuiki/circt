@@ -27,6 +27,7 @@ public:
   ast::Expr *parseExpr(ast::Precedence minPrec = ast::Precedence::Min);
   ast::Expr *parsePrimaryExpr();
   ast::Expr *parseInfixExpr(ast::Expr *expr, ast::Precedence minPrec);
+  ast::Type *parseType();
 
   Lexer &lexer;
   AST &ast;

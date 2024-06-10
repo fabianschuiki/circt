@@ -17,6 +17,7 @@ namespace ast {
 struct Item;
 struct Stmt;
 struct Expr;
+struct Type;
 
 /// Operator precedences.
 ///
@@ -49,10 +50,19 @@ struct Item {
   Location loc;
 };
 
+/// A module port.
+struct ModPort {
+  Location loc;
+  bool isOutput;
+  StringAttr name;
+  Type *type;
+};
+
 /// A module definition.
 struct ModItem : public Item {
   static bool classof(const Item *item) { return item->kind == Kind::Mod; }
   StringAttr name;
+  ArrayRef<ModPort> ports;
   ArrayRef<Stmt *> stmts;
 };
 
@@ -127,6 +137,22 @@ struct BinaryExpr : public Expr {
   BinaryOp op;
   Expr *lhs;
   Expr *rhs;
+};
+
+/// Base class for all types.
+struct Type {
+  enum class Kind {
+#define AST_TYPE(NAME) NAME,
+#include "tin/AST.def"
+  };
+  const Kind kind;
+  Location loc;
+};
+
+/// A signless integer type.
+struct IntType : public Type {
+  static bool classof(const Type *type) { return type->kind == Kind::Int; }
+  unsigned width;
 };
 
 } // namespace ast

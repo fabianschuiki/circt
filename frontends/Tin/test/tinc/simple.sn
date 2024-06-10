@@ -1,7 +1,9 @@
 // RUN: tinc %s | FileCheck %s
 
-// CHECK: hw.module @Foo()
-mod Foo() {
+// CHECK: hw.module @Foo(
+// CHECK-SAME: in %a : i42
+// CHECK-SAME: in %b : i42
+mod Foo(in a: int<42>, in b: int<42>) {
   // Stray semicolons are ignored.
   ;
 

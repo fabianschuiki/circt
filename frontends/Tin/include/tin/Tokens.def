@@ -65,9 +65,10 @@ TOK_SYMBOL1(Mod, "%")
 TOK_SYMBOL2(Shl, "<<")
 TOK_SYMBOL2(Shr, ">>")
 
-TOK_KEYWORD(mod)
 TOK_KEYWORD(fn)
 TOK_KEYWORD(in)
+TOK_KEYWORD(int)
+TOK_KEYWORD(mod)
 TOK_KEYWORD(out)
 
 #undef TOK_ANY
