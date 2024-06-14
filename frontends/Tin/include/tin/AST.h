@@ -22,7 +22,8 @@ struct Type;
 
 // AST nodes that can be referred to by name.
 struct ModPort;
-using Binding = ModPort *;
+struct LetStmt;
+using Binding = PointerUnion<ModPort *, LetStmt *>;
 
 /// Operator precedences.
 ///
@@ -139,6 +140,20 @@ struct OutStmt : public Stmt {
 
   template <typename V, typename... Args>
   void walk(V &visitor, Args &&...args) {
+    visitor.visit(*value, std::forward<Args>(args)...);
+  }
+};
+
+/// A let statement.
+struct LetStmt : public Stmt {
+  static bool classof(const Stmt *stmt) { return stmt->kind == Kind::Let; }
+  StringAttr name;
+  Type *type;
+  Expr *value;
+
+  template <typename V, typename... Args>
+  void walk(V &visitor, Args &&...args) {
+    visitor.visit(*type, std::forward<Args>(args)...);
     visitor.visit(*value, std::forward<Args>(args)...);
   }
 };

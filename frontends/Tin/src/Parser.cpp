@@ -181,12 +181,39 @@ PointerUnion<ast::Stmt *, ast::Expr *> Parser::parseStmtOrExpr() {
       return {};
     if (!require(TokenKind::Assign))
       return {};
-    auto value = parseExpr();
+    auto *value = parseExpr();
     if (!value)
+      return {};
+    if (!require(TokenKind::Semicolon))
       return {};
     return &ast.create<ast::OutStmt>(
         {{ast::Stmt::Kind::Out, loc(kw)},
          StringAttr::get(lexer.context, name.spelling),
+         value});
+  }
+
+  // Parse let statements.
+  // let <name>: <type> = <expr>;
+  if (auto kw = consumeIf(TokenKind::Kw_let)) {
+    auto name = require(TokenKind::Ident, "let binding name");
+    if (!name)
+      return {};
+    if (!require(TokenKind::Colon))
+      return {};
+    auto *type = parseType();
+    if (!type)
+      return {};
+    if (!require(TokenKind::Assign))
+      return {};
+    auto *value = parseExpr();
+    if (!value)
+      return {};
+    if (!require(TokenKind::Semicolon))
+      return {};
+    return &ast.create<ast::LetStmt>(
+        {{ast::Stmt::Kind::Let, loc(kw)},
+         StringAttr::get(lexer.context, name.spelling),
+         type,
          value});
   }
 

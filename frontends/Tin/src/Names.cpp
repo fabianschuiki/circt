@@ -15,8 +15,9 @@ using namespace circt;
 using namespace tin;
 
 static Location getLoc(ast::Binding binding) {
-  return TypeSwitch<ast::Binding, Location>(binding).Case<ast::ModPort>(
-      [](auto node) { return node->loc; });
+  return TypeSwitch<ast::Binding, Location>(binding)
+      .Case<ast::ModPort *, ast::LetStmt *>(
+          [](auto *node) { return node->loc; });
 }
 
 namespace {
@@ -129,7 +130,7 @@ struct Resolver : public ast::Visitor<Resolver> {
     stmt.binding = resolveName(stmt.name, stmt.loc);
     if (!stmt.binding)
       return;
-    auto *port = dyn_cast<ast::ModPort>(stmt.binding);
+    auto *port = dyn_cast<ast::ModPort *>(stmt.binding);
     if (!port || !port->isOutput) {
       auto d = mlir::emitError(stmt.loc)
                << "`" << stmt.name.getValue() << "` is not an output port";
@@ -141,6 +142,7 @@ struct Resolver : public ast::Visitor<Resolver> {
   }
 
   void visit(ast::ModPort &port, Declare) { declareName(port.name, &port); }
+  void visit(ast::LetStmt &stmt, Declare) { declareName(stmt.name, &stmt); }
 };
 } // namespace
 

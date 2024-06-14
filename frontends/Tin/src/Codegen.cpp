@@ -96,23 +96,32 @@ struct Codegen {
 
     // Create placeholder values and wires for output ports and add them to the
     // map of named values.
-    SmallVector<std::tuple<ast::ModPort *, hw::WireOp, Operation *>>
-        outputPlaceholders;
+    SmallVector<Operation *> placeholders;
     SmallVector<Value> outputOperands;
     for (auto *port : item.ports) {
       if (!port->isOutput)
         continue;
-      auto placeholderOp = builder.create<mlir::UnrealizedConversionCastOp>(
+      auto placeholder = builder.create<mlir::UnrealizedConversionCastOp>(
           port->loc, TypeRange{visit(*port->type)}, ValueRange{});
-      auto wireOp =
-          builder.create<hw::WireOp>(port->loc, placeholderOp.getResult(0));
-      outputPlaceholders.push_back({port, wireOp, placeholderOp});
-      outputOperands.push_back(wireOp);
-      namedValues.insert(port, wireOp);
+      placeholders.push_back(placeholder);
+      outputOperands.push_back(placeholder.getResult(0));
+      namedValues.insert(port, placeholder.getResult(0));
     }
     cast<hw::OutputOp>(mod.getBodyBlock()->getTerminator())
         .getOutputsMutable()
         .assign(outputOperands);
+
+    for (auto *stmt : item.stmts) {
+      if (auto *letStmt = dyn_cast<ast::LetStmt>(stmt)) {
+        auto type = visit(*letStmt->type);
+        if (!type)
+          return failure();
+        auto placeholder = builder.create<mlir::UnrealizedConversionCastOp>(
+            stmt->loc, TypeRange{type}, ValueRange{});
+        placeholders.push_back(placeholder);
+        namedValues.insert(letStmt, placeholder.getResult(0));
+      }
+    }
 
     for (auto *stmt : item.stmts)
       if (failed(visit(*stmt)))
@@ -120,21 +129,27 @@ struct Codegen {
 
     // Remove the temporary wires created for the output ports.
     bool anyErrors = false;
-    for (auto [port, wireOp, placeholderOp] : outputPlaceholders) {
-      if (!placeholderOp->use_empty()) {
+    for (auto *port : item.ports) {
+      if (!port->isOutput)
+        continue;
+      auto *placeholderOp = namedValues.lookup(port).getDefiningOp();
+      if (placeholderOp->getNumOperands() != 1) {
         auto d = mlir::emitError(port->loc) << "port `" << port->name.getValue()
                                             << "` has not been assigned";
         d.attachNote() << "hint: add a `out " << port->name.getValue()
                        << " = <value>;` statement";
         anyErrors = true;
-        continue;
       }
-      placeholderOp->erase();
-      wireOp.replaceAllUsesWith(wireOp.getInput());
-      wireOp.erase();
     }
     if (anyErrors)
       return failure();
+
+    // Remove placeholders created for ports and declarations.
+    for (auto *placeholder : placeholders) {
+      assert(placeholder->getNumOperands() == 1);
+      placeholder->getResult(0).replaceAllUsesWith(placeholder->getOperand(0));
+      placeholder->erase();
+    }
 
     return success();
   }
@@ -161,12 +176,21 @@ struct Codegen {
   }
 
   LogicalResult visitStmt(ast::OutStmt &stmt) {
-    assert(stmt.binding);
-    auto wireOp = namedValues.lookup(stmt.binding).getDefiningOp<hw::WireOp>();
     auto value = visit(*stmt.value);
     if (!value)
       return failure();
-    wireOp.getInputMutable().assign(value);
+    assert(stmt.binding);
+    auto *placeholderOp = namedValues.lookup(stmt.binding).getDefiningOp();
+    placeholderOp->setOperands(value);
+    return success();
+  }
+
+  LogicalResult visitStmt(ast::LetStmt &stmt) {
+    auto value = visit(*stmt.value);
+    if (!value)
+      return failure();
+    auto *placeholderOp = namedValues.lookup(&stmt).getDefiningOp();
+    placeholderOp->setOperands(value);
     return success();
   }
 

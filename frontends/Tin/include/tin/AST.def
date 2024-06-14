@@ -39,6 +39,7 @@ AST_ITEM(Mod)
 AST_STMT(Empty)
 AST_STMT(Expr)
 AST_STMT(Out)
+AST_STMT(Let)
 
 AST_EXPR(NumLit)
 AST_EXPR(Ident)
