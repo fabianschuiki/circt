@@ -3,7 +3,9 @@
 // CHECK: hw.module @Foo(
 // CHECK-SAME: in %a : i42
 // CHECK-SAME: in %b : i42
-mod Foo(in a: int<42>, in b: int<42>) {
+// CHECK-SAME: in %c : i42
+// CHECK-SAME: in %d : i42
+mod Foo(in a: int<42>, in b: int<42>, in c: int<42>, in d: int<42>) {
   // Stray semicolons are ignored.
   ;
 
@@ -27,108 +29,61 @@ mod Foo(in a: int<42>, in b: int<42>) {
   // CHECK: hw.constant -21 : i6
   (43);
 
-  // CHECK: [[TMP:%.+]] = hw.constant -22 : i6
-  // CHECK: [[ZERO:%.+]] = hw.constant 0 : i6
-  // CHECK: comb.sub [[ZERO]], [[TMP]] : i6
-  -42;
-  // CHECK: [[TMP:%.+]] = hw.constant -22 : i6
-  // CHECK: [[ONES:%.+]] = hw.constant -1 : i6
-  // CHECK: comb.xor [[ONES]], [[TMP]] : i6
-  !42;
+  // CHECK: [[ZERO:%.+]] = hw.constant 0 : i42
+  // CHECK: comb.sub [[ZERO]], %a : i42
+  -a;
+  // CHECK: [[ONES:%.+]] = hw.constant -1 : i42
+  // CHECK: comb.xor [[ONES]], %a : i42
+  !a;
 
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.and [[A]], [[B]] : i6
-  42 & 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.or [[A]], [[B]] : i6
-  42 | 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.xor [[A]], [[B]] : i6
-  42 ^ 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.add [[A]], [[B]] : i6
-  42 + 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.sub [[A]], [[B]] : i6
-  42 - 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.mul [[A]], [[B]] : i6
-  42 * 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.divu [[A]], [[B]] : i6
-  42 / 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.modu [[A]], [[B]] : i6
-  42 % 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.shl [[A]], [[B]] : i6
-  42 << 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.shru [[A]], [[B]] : i6
-  42 >> 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.icmp eq [[A]], [[B]] : i6
-  42 == 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.icmp ne [[A]], [[B]] : i6
-  42 != 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.icmp ult [[A]], [[B]] : i6
-  42 < 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.icmp ugt [[A]], [[B]] : i6
-  42 > 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.icmp ule [[A]], [[B]] : i6
-  42 <= 43;
-  // CHECK: [[A:%.+]] = hw.constant -22 : i6
-  // CHECK: [[B:%.+]] = hw.constant -21 : i6
-  // CHECK: comb.icmp uge [[A]], [[B]] : i6
-  42 >= 43;
+  // CHECK: comb.and %a, %b : i42
+  a & b;
+  // CHECK: comb.or %a, %b : i42
+  a | b;
+  // CHECK: comb.xor %a, %b : i42
+  a ^ b;
+  // CHECK: comb.add %a, %b : i42
+  a + b;
+  // CHECK: comb.sub %a, %b : i42
+  a - b;
+  // CHECK: comb.mul %a, %b : i42
+  a * b;
+  // CHECK: comb.divu %a, %b : i42
+  a / b;
+  // CHECK: comb.modu %a, %b : i42
+  a % b;
+  // CHECK: comb.shl %a, %b : i42
+  a << b;
+  // CHECK: comb.shru %a, %b : i42
+  a >> b;
+  // CHECK: comb.icmp eq %a, %b : i42
+  a == b;
+  // CHECK: comb.icmp ne %a, %b : i42
+  a != b;
+  // CHECK: comb.icmp ult %a, %b : i42
+  a < b;
+  // CHECK: comb.icmp ugt %a, %b : i42
+  a > b;
+  // CHECK: comb.icmp ule %a, %b : i42
+  a <= b;
+  // CHECK: comb.icmp uge %a, %b : i42
+  a >= b;
 
-  // CHECK: [[A:%.+]] = hw.constant -22
-  // CHECK: [[B:%.+]] = hw.constant -21
-  // CHECK: [[C:%.+]] = hw.constant -20
-  // CHECK: [[TMP:%.+]] = comb.mul [[B]], [[C]]
-  // CHECK: comb.add [[A]], [[TMP]]
-  42 + 43 * 44;
-  // CHECK: [[A:%.+]] = hw.constant -22
-  // CHECK: [[B:%.+]] = hw.constant -21
-  // CHECK: [[TMP:%.+]] = comb.mul [[A]], [[B]]
-  // CHECK: [[C:%.+]] = hw.constant -20
-  // CHECK: comb.add [[TMP]], [[C]]
-  42 * 43 + 44;
-  // CHECK: [[A:%.+]] = hw.constant -22
-  // CHECK: [[B:%.+]] = hw.constant -21
-  // CHECK: [[TMP1:%.+]] = comb.mul [[A]], [[B]]
-  // CHECK: [[C:%.+]] = hw.constant -20
-  // CHECK: [[D:%.+]] = hw.constant -19
-  // CHECK: [[TMP2:%.+]] = comb.mul [[C]], [[D]]
+  // CHECK: [[TMP:%.+]] = comb.mul %b, %c
+  // CHECK: comb.add %a, [[TMP]]
+  a + b * c;
+  // CHECK: [[TMP:%.+]] = comb.mul %a, %b
+  // CHECK: comb.add [[TMP]], %c
+  a * b + c;
+  // CHECK: [[TMP1:%.+]] = comb.mul %a, %b
+  // CHECK: [[TMP2:%.+]] = comb.mul %c, %d
   // CHECK: comb.add [[TMP1]], [[TMP2]]
-  42 * 43 + 44 * 45;
+  a * b + c * d;
 
   // Left-associativity.
-  // CHECK: %[[A:.+]] = hw.constant -22
-  // CHECK: %[[B:.+]] = hw.constant -22
-  // CHECK: %[[SUB:.+]] = comb.sub %[[A]], %[[B]]
-  // CHECK: %[[C:.+]] = hw.constant -22
-  // CHECK: comb.add %[[SUB]], %[[C]]
-  42 - 42 + 42;
+  // CHECK: [[TMP:%.+]] = comb.sub %a, %b
+  // CHECK: comb.add [[TMP]], %c
+  a - b + c;
 }
 
 // CHECK: hw.module @Bar()

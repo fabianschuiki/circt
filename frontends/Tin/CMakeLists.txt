@@ -5,6 +5,7 @@ add_circt_tool(tinc
   src/AST.cpp
   src/Codegen.cpp
   src/Lexer.cpp
+  src/Names.cpp
   src/Parser.cpp
   tinc.cpp
 )

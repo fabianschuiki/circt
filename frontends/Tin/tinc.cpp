@@ -12,6 +12,7 @@
 
 #include "tin/Codegen.h"
 #include "tin/Lexer.h"
+#include "tin/Names.h"
 #include "tin/Parser.h"
 
 #include "circt/Support/LLVM.h"
@@ -66,6 +67,10 @@ LogicalResult process(MLIRContext *context, llvm::SourceMgr &sourceMgr,
   if (!root)
     return failure();
   ast.roots.push_back(root);
+
+  // Resolve the names in the AST.
+  if (failed(resolveNames(ast)))
+    return failure();
 
   // Convert the AST to MLIR.
   auto module = convertToMLIR(context, ast);

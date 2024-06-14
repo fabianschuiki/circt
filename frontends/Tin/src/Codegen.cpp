@@ -13,6 +13,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Verifier.h"
+#include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace circt;
@@ -24,6 +25,10 @@ struct Codegen {
   MLIRContext *context;
   OpBuilder builder;
   SymbolTable symbolTable;
+
+  using NamedValues = llvm::ScopedHashTable<ast::Binding, Value>;
+  using NamedValueScope = NamedValues::ScopeTy;
+  NamedValues namedValues;
 
   Codegen(ModuleOp module)
       : module(module), context(module.getContext()), builder(context),
@@ -54,20 +59,20 @@ struct Codegen {
 #define AST_ITEM(NAME)                                                         \
   .Case<ast::NAME##Item>([&](auto *item) { return visitItem(*item); })
 #include "tin/AST.def"
-        .Default([&](auto *) {
-          return mlir::emitError(item.loc) << "item codegen not implemented";
-        });
+        ;
   }
 
   LogicalResult visitItem(ast::ModItem &item) {
+    NamedValueScope scope(namedValues);
+
     SmallVector<hw::PortInfo> ports;
-    for (auto &astPort : item.ports) {
+    for (auto *astPort : item.ports) {
       hw::PortInfo irPort;
-      irPort.loc = astPort.loc;
+      irPort.loc = astPort->loc;
       irPort.dir =
-          astPort.isOutput ? hw::PortInfo::Output : hw::PortInfo::Input;
-      irPort.name = astPort.name;
-      irPort.type = visit(*astPort.type);
+          astPort->isOutput ? hw::PortInfo::Output : hw::PortInfo::Input;
+      irPort.name = astPort->name;
+      irPort.type = visit(*astPort->type);
       if (!irPort.type)
         return failure();
       ports.push_back(irPort);
@@ -78,6 +83,14 @@ struct Codegen {
 
     OpBuilder::InsertionGuard g(builder);
     builder.setInsertionPointToStart(mod.getBodyBlock());
+
+    unsigned argIdx = 0;
+    for (auto *port : item.ports) {
+      if (port->isOutput)
+        continue;
+      namedValues.insert(port, mod.getBody().getArgument(argIdx));
+      ++argIdx;
+    }
 
     for (auto *stmt : item.stmts)
       if (failed(visit(*stmt)))
@@ -95,10 +108,7 @@ struct Codegen {
 #define AST_STMT(NAME)                                                         \
   .Case<ast::NAME##Stmt>([&](auto *stmt) { return visitStmt(*stmt); })
 #include "tin/AST.def"
-        .Default([&](auto *) {
-          return mlir::emitError(stmt.loc)
-                 << "statement codegen not implemented";
-        });
+        ;
   }
 
   LogicalResult visitStmt(ast::EmptyStmt &stmt) { return success(); }
@@ -119,14 +129,18 @@ struct Codegen {
 #define AST_EXPR(NAME)                                                         \
   .Case<ast::NAME##Expr>([&](auto *expr) { return visitExpr(*expr); })
 #include "tin/AST.def"
-        .Default([&](auto *) {
-          mlir::emitError(expr.loc) << "expression codegen not implemented";
-          return Value{};
-        });
+        ;
   }
 
   Value visitExpr(ast::NumLitExpr &expr) {
     return builder.create<hw::ConstantOp>(expr.loc, expr.value);
+  }
+
+  Value visitExpr(ast::IdentExpr &expr) {
+    if (auto value = namedValues.lookup(expr.binding))
+      return value;
+    mlir::emitError(expr.loc) << "internal error: no value for identifier";
+    return {};
   }
 
   Value visitExpr(ast::ParenExpr &expr) { return visit(*expr.expr); }

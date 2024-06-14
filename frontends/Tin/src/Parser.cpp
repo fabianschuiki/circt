@@ -71,8 +71,7 @@ Token Parser::consumeIf(TokenKind kind) {
   return {token.spelling.substr(0, 0), TokenKind::Eof};
 }
 
-[[nodiscard]]
-Token Parser::require(TokenKind kind, const Twine &msg) {
+[[nodiscard]] Token Parser::require(TokenKind kind, const Twine &msg) {
   if (isa(kind))
     return consume();
   auto d = mlir::emitError(loc(), "expected ");
@@ -108,7 +107,7 @@ ast::Item *Parser::parseItem() {
       return {};
 
     // Parse the ports.
-    SmallVector<ast::ModPort> ports;
+    SmallVector<ast::ModPort *> ports;
     if (!require(TokenKind::LParen))
       return {};
     while (notAtDelimiter(TokenKind::RParen)) {
@@ -136,9 +135,9 @@ ast::Item *Parser::parseItem() {
         return {};
 
       // Add the port.
-      ports.push_back(
-          ast::ModPort{loc(name), isOutput,
-                       StringAttr::get(lexer.context, name.spelling), type});
+      ports.push_back(&ast.create<ast::ModPort>(
+          {loc(name), isOutput, StringAttr::get(lexer.context, name.spelling),
+           type}));
       if (!consumeIf(TokenKind::Comma))
         break;
     }
@@ -280,6 +279,13 @@ ast::Expr *Parser::parsePrimaryExpr() {
 
     return &ast.create<ast::NumLitExpr>(
         {{ast::Expr::Kind::NumLit, loc(lit)}, value});
+  }
+
+  // Parse identifiers.
+  if (auto ident = consumeIf(TokenKind::Ident)) {
+    return &ast.create<ast::IdentExpr>(
+        {{ast::Expr::Kind::Ident, loc(ident)},
+         StringAttr::get(lexer.context, ident.spelling)});
   }
 
   // Parse parenthesized expressions.

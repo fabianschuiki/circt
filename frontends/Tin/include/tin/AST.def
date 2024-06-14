@@ -40,6 +40,7 @@ AST_STMT(Empty)
 AST_STMT(Expr)
 
 AST_EXPR(NumLit)
+AST_EXPR(Ident)
 AST_EXPR(Paren)
 AST_EXPR(Unary)
 AST_EXPR(Binary)
