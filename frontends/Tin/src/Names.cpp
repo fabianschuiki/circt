@@ -92,6 +92,12 @@ struct Resolver : public ast::Visitor<Resolver> {
     return failure(anyErrors);
   }
 
+  // When resolving names in AST nodes, descend into child nodes by default.
+  template <typename T>
+  void visitDefault(T &node, Resolve) {
+    node.walk(*this, Resolve{});
+  }
+
   void visit(ast::Root &root, Resolve) {
     // Create a scope for this file.
     scopes.emplace_back();
@@ -119,10 +125,19 @@ struct Resolver : public ast::Visitor<Resolver> {
     expr.binding = resolveName(expr.name, expr.loc);
   }
 
-  // When resolving names in AST nodes, descend into child nodes by default.
-  template <typename T>
-  void visitDefault(T &node, Resolve) {
-    node.walk(*this, Resolve{});
+  void visit(ast::OutStmt &stmt, Resolve) {
+    stmt.binding = resolveName(stmt.name, stmt.loc);
+    if (!stmt.binding)
+      return;
+    auto *port = dyn_cast<ast::ModPort>(stmt.binding);
+    if (!port || !port->isOutput) {
+      auto d = mlir::emitError(stmt.loc)
+               << "`" << stmt.name.getValue() << "` is not an output port";
+      d.attachNote(getLoc(stmt.binding))
+          << "`" << stmt.name.getValue() << "` defined here";
+      anyErrors = true;
+    }
+    stmt.walk(*this, Resolve{});
   }
 
   void visit(ast::ModPort &port, Declare) { declareName(port.name, &port); }

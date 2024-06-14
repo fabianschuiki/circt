@@ -84,6 +84,8 @@ struct Codegen {
     OpBuilder::InsertionGuard g(builder);
     builder.setInsertionPointToStart(mod.getBodyBlock());
 
+    // Add the ports to the map of named values such that identifier expressions
+    // can find them.
     unsigned argIdx = 0;
     for (auto *port : item.ports) {
       if (port->isOutput)
@@ -92,9 +94,47 @@ struct Codegen {
       ++argIdx;
     }
 
+    // Create placeholder values and wires for output ports and add them to the
+    // map of named values.
+    SmallVector<std::tuple<ast::ModPort *, hw::WireOp, Operation *>>
+        outputPlaceholders;
+    SmallVector<Value> outputOperands;
+    for (auto *port : item.ports) {
+      if (!port->isOutput)
+        continue;
+      auto placeholderOp = builder.create<mlir::UnrealizedConversionCastOp>(
+          port->loc, TypeRange{visit(*port->type)}, ValueRange{});
+      auto wireOp =
+          builder.create<hw::WireOp>(port->loc, placeholderOp.getResult(0));
+      outputPlaceholders.push_back({port, wireOp, placeholderOp});
+      outputOperands.push_back(wireOp);
+      namedValues.insert(port, wireOp);
+    }
+    cast<hw::OutputOp>(mod.getBodyBlock()->getTerminator())
+        .getOutputsMutable()
+        .assign(outputOperands);
+
     for (auto *stmt : item.stmts)
       if (failed(visit(*stmt)))
         return failure();
+
+    // Remove the temporary wires created for the output ports.
+    bool anyErrors = false;
+    for (auto [port, wireOp, placeholderOp] : outputPlaceholders) {
+      if (!placeholderOp->use_empty()) {
+        auto d = mlir::emitError(port->loc) << "port `" << port->name.getValue()
+                                            << "` has not been assigned";
+        d.attachNote() << "hint: add a `out " << port->name.getValue()
+                       << " = <value>;` statement";
+        anyErrors = true;
+        continue;
+      }
+      placeholderOp->erase();
+      wireOp.replaceAllUsesWith(wireOp.getInput());
+      wireOp.erase();
+    }
+    if (anyErrors)
+      return failure();
 
     return success();
   }
@@ -120,6 +160,16 @@ struct Codegen {
     return success();
   }
 
+  LogicalResult visitStmt(ast::OutStmt &stmt) {
+    assert(stmt.binding);
+    auto wireOp = namedValues.lookup(stmt.binding).getDefiningOp<hw::WireOp>();
+    auto value = visit(*stmt.value);
+    if (!value)
+      return failure();
+    wireOp.getInputMutable().assign(value);
+    return success();
+  }
+
   //===--------------------------------------------------------------------===//
   // Expressions
   //===--------------------------------------------------------------------===//
@@ -137,10 +187,10 @@ struct Codegen {
   }
 
   Value visitExpr(ast::IdentExpr &expr) {
-    if (auto value = namedValues.lookup(expr.binding))
-      return value;
-    mlir::emitError(expr.loc) << "internal error: no value for identifier";
-    return {};
+    assert(expr.binding);
+    auto value = namedValues.lookup(expr.binding);
+    assert(value);
+    return value;
   }
 
   Value visitExpr(ast::ParenExpr &expr) { return visit(*expr.expr); }

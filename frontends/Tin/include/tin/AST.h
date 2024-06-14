@@ -20,6 +20,10 @@ struct Stmt;
 struct Expr;
 struct Type;
 
+// AST nodes that can be referred to by name.
+struct ModPort;
+using Binding = ModPort *;
+
 /// Operator precedences.
 ///
 /// See https://en.cppreference.com/w/c/language/operator_precedence.
@@ -126,6 +130,19 @@ struct ExprStmt : public Stmt {
   }
 };
 
+/// An output assignment statement.
+struct OutStmt : public Stmt {
+  static bool classof(const Stmt *stmt) { return stmt->kind == Kind::Out; }
+  StringAttr name;
+  Expr *value;
+  Binding binding = nullptr;
+
+  template <typename V, typename... Args>
+  void walk(V &visitor, Args &&...args) {
+    visitor.visit(*value, std::forward<Args>(args)...);
+  }
+};
+
 //===----------------------------------------------------------------------===//
 // Expressions
 //===----------------------------------------------------------------------===//
@@ -144,8 +161,6 @@ enum class BinaryOp {
 
 /// Return the precedence of the given binary operator.
 Precedence getPrecedence(BinaryOp op);
-
-using Binding = ModPort *;
 
 /// Base class for all expressions.
 struct Expr {

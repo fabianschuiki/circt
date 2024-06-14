@@ -5,7 +5,7 @@
 // CHECK-SAME: in %b : i42
 // CHECK-SAME: in %c : i42
 // CHECK-SAME: in %d : i42
-mod Foo(in a: int<42>, in b: int<42>, in c: int<42>, in d: int<42>) {
+mod Foo(in a: int<42>, in b: int<42>, in c: int<42>, in d: int<42>, out x: int<42>, out y: int<42>) {
   // Stray semicolons are ignored.
   ;
 
@@ -84,6 +84,10 @@ mod Foo(in a: int<42>, in b: int<42>, in c: int<42>, in d: int<42>) {
   // CHECK: [[TMP:%.+]] = comb.sub %a, %b
   // CHECK: comb.add [[TMP]], %c
   a - b + c;
+
+  // CHECK: hw.output %a, %b : i42, i42
+  out y = b;
+  out x = a;
 }
 
 // CHECK: hw.module @Bar()

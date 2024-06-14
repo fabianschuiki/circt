@@ -173,6 +173,23 @@ PointerUnion<ast::Stmt *, ast::Expr *> Parser::parseStmtOrExpr() {
   if (auto token = consumeIf(TokenKind::Semicolon))
     return &ast.create<ast::EmptyStmt>({{ast::Stmt::Kind::Empty, loc(token)}});
 
+  // Parse output assignments.
+  // out <name> = <expr>;
+  if (auto kw = consumeIf(TokenKind::Kw_out)) {
+    auto name = require(TokenKind::Ident, "port name");
+    if (!name)
+      return {};
+    if (!require(TokenKind::Assign))
+      return {};
+    auto value = parseExpr();
+    if (!value)
+      return {};
+    return &ast.create<ast::OutStmt>(
+        {{ast::Stmt::Kind::Out, loc(kw)},
+         StringAttr::get(lexer.context, name.spelling),
+         value});
+  }
+
   // Otherwise this is a statement that starts with an expression.
   return parseExpr();
 }
