@@ -9,6 +9,7 @@
 #include "tin/Codegen.h"
 
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/Debug/DebugOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
@@ -90,7 +91,9 @@ struct Codegen {
     for (auto *port : item.ports) {
       if (port->isOutput)
         continue;
-      namedValues.insert(port, mod.getBody().getArgument(argIdx));
+      auto value = mod.getBody().getArgument(argIdx);
+      namedValues.insert(port, value);
+      builder.create<debug::VariableOp>(port->loc, port->name, value, Value{});
       ++argIdx;
     }
 
@@ -106,6 +109,8 @@ struct Codegen {
       placeholders.push_back(placeholder);
       outputOperands.push_back(placeholder.getResult(0));
       namedValues.insert(port, placeholder.getResult(0));
+      builder.create<debug::VariableOp>(port->loc, port->name,
+                                        placeholder.getResult(0), Value{});
     }
     cast<hw::OutputOp>(mod.getBodyBlock()->getTerminator())
         .getOutputsMutable()
@@ -189,6 +194,7 @@ struct Codegen {
     auto value = visit(*stmt.value);
     if (!value)
       return failure();
+    builder.create<debug::VariableOp>(stmt.loc, stmt.name, value, Value{});
     auto *placeholderOp = namedValues.lookup(&stmt).getDefiningOp();
     placeholderOp->setOperands(value);
     return success();
@@ -307,7 +313,7 @@ struct Codegen {
 } // namespace
 
 OwningOpRef<ModuleOp> tin::convertToMLIR(MLIRContext *context, AST &ast) {
-  context->loadDialect<hw::HWDialect, comb::CombDialect>();
+  context->loadDialect<hw::HWDialect, comb::CombDialect, debug::DebugDialect>();
   auto module = ModuleOp::create(UnknownLoc::get(context));
   Codegen codegen(module);
   if (failed(codegen.visit(ast)))

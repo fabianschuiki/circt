@@ -11,8 +11,9 @@ add_circt_tool(tinc
 )
 target_link_libraries(tinc
   PRIVATE
-  CIRCTHW
   CIRCTComb
+  CIRCTDebug
+  CIRCTHW
   MLIRIR
   MLIRParser
   MLIRSupport

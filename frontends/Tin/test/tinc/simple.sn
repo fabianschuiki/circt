@@ -6,6 +6,13 @@
 // CHECK-SAME: in %c : i42
 // CHECK-SAME: in %d : i42
 mod Foo(in a: int<42>, in b: int<42>, in c: int<42>, in d: int<42>, out x: int<42>, out y: int<42>) {
+  // CHECK: dbg.variable "a", %a
+  // CHECK: dbg.variable "b", %b
+  // CHECK: dbg.variable "c", %c
+  // CHECK: dbg.variable "d", %d
+  // CHECK: dbg.variable "x"
+  // CHECK: dbg.variable "y"
+
   // Stray semicolons are ignored.
   ;
 
@@ -85,7 +92,9 @@ mod Foo(in a: int<42>, in b: int<42>, in c: int<42>, in d: int<42>, out x: int<4
   // CHECK: comb.add [[TMP]], %c
   a - b + c;
 
+  // CHECK: dbg.variable "v", %b
   let v: int<42> = u;
+  // CHECK: dbg.variable "u", %b
   let u: int<42> = b;
 
   // CHECK: hw.output %a, %b : i42, i42
